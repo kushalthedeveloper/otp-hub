@@ -34,6 +34,7 @@ export default function Home() {
         <nav className="nav-list" aria-label="Main navigation">
           <button className="nav-item active"><span>⌂</span> Overview</button>
           <a className="nav-item" href="/authenticator"><span>◈</span> Authenticator</a>
+          <a className="nav-item" href="/download"><span>↓</span> Download app</a>
           <button className="nav-item" onClick={() => setActive("email")}><span>✉</span> Email connections</button>
           <button className="nav-item" onClick={() => setActive("device")}><span>▣</span> Devices</button>
         </nav>
