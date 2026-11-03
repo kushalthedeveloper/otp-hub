@@ -141,7 +141,8 @@ class MainActivity : Activity() {
                 if (pass.text.length < 12) { message("Use at least 12 characters for your vault passphrase."); return@button }
                 vaultPass = pass.text.toString()
                 async {
-                    val remote = callRpc("otp_hub_vault_get", JSONObject().put("p_token", token)).optJSONObject("result")
+                    val remoteResponse = callRpc("otp_hub_vault_get", JSONObject().put("p_token", token))
+                    val remote = if (remoteResponse.has("salt")) remoteResponse else null
                     val local = prefs.getString("vault", null)
                     val record = remote ?: if (local != null) JSONObject(local) else null
                     if (record != null) entries = decryptVault(record, vaultPass)
