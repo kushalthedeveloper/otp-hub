@@ -33,7 +33,7 @@ export default function Home() {
         <div className="workspace-label">WORKSPACE</div>
         <nav className="nav-list" aria-label="Main navigation">
           <button className="nav-item active"><span>⌂</span> Overview</button>
-          <button className="nav-item" onClick={() => setActive("authenticator")}><span>◈</span> Authenticator</button>
+          <a className="nav-item" href="/authenticator"><span>◈</span> Authenticator</a>
           <button className="nav-item" onClick={() => setActive("email")}><span>✉</span> Email connections</button>
           <button className="nav-item" onClick={() => setActive("device")}><span>▣</span> Devices</button>
         </nav>
@@ -70,7 +70,7 @@ export default function Home() {
               <h1>Good afternoon<span className="title-dot">.</span></h1>
               <p className="subtitle">A clearer view of your personal authentication setup.</p>
             </div>
-            <button className="primary-button" onClick={() => setActive("authenticator")}><span>＋</span> Set up authenticator</button>
+            <a className="primary-button" href="/authenticator"><span>＋</span> Set up authenticator</a>
           </div>
 
           {showNotice && (
@@ -120,7 +120,7 @@ export default function Home() {
             </div>
             <div className="panel setup-panel">
               <div className="setup-orbit"><span>◈</span></div>
-              <div><span className="mini-label">NEXT STEP</span><h3>Set up your authenticator</h3><p>Plan a personal authenticator vault for codes you intentionally add and control.</p><button className="secondary-button" onClick={() => setActive("authenticator")}>Explore setup <span>→</span></button></div>
+              <div><span className="mini-label">NEXT STEP</span><h3>Set up your authenticator</h3><p>Plan a personal authenticator vault for codes you intentionally add and control.</p><a className="secondary-button" href="/authenticator">Explore setup <span>→</span></a></div>
             </div>
           </div>
           <footer><span>© 2026 OTP Hub</span><span>Privacy-first by design <b>·</b> Preview build 0.1.0</span></footer>
