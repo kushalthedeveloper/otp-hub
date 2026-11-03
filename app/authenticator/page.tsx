@@ -34,7 +34,7 @@ function fromBase64(value: string): Uint8Array {
 }
 async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
   const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 310000, hash: "SHA-256" }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", salt: new Uint8Array(salt).buffer as ArrayBuffer, iterations: 310000, hash: "SHA-256" }, material, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 async function encryptVault(entries: Entry[], passphrase: string): Promise<VaultRecord> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
@@ -45,11 +45,11 @@ async function encryptVault(entries: Entry[], passphrase: string): Promise<Vault
 }
 async function decryptVault(record: VaultRecord, passphrase: string): Promise<Entry[]> {
   const key = await deriveKey(passphrase, fromBase64(record.salt));
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64(record.iv) }, key, fromBase64(record.data));
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(fromBase64(record.iv)).buffer as ArrayBuffer }, key, new Uint8Array(fromBase64(record.data)).buffer as ArrayBuffer);
   return JSON.parse(new TextDecoder().decode(plain)) as Entry[];
 }
 async function generateCode(secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey("raw", decodeBase32(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey("raw", new Uint8Array(decodeBase32(secret)).buffer as ArrayBuffer, { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
   const counter = Math.floor(Date.now() / 1000 / 30);
   const msg = new Uint8Array(8);
   let n = counter;
