@@ -2,13 +2,23 @@
 
 OTP Hub is a privacy-first authenticator workspace with username/password accounts and an Android companion app.
 
+**Live website:** https://otp-hub-eight.vercel.app
+
 ## Account system
 
 - Username + password registration and login; no email or phone number is required.
 - Usernames are 3–24 characters: lowercase letters, numbers, and underscores.
 - Passwords must be 12–128 characters.
-- Registration returns a one-time recovery code. Save it privately and offline.
-- Account sessions are validated by the Supabase-backed RPC functions.
+- Registration returns a one-time recovery code. Save it privately and offline. A successful recovery rotates the recovery code and displays the replacement.
+- Account sessions are validated by Supabase-backed RPC functions.
+- The dashboard redirects visitors to sign in unless a valid session exists.
+
+## Web authenticator
+
+- The browser authenticator generates TOTP codes from setup keys the user intentionally enters.
+- Its encrypted vault is stored locally in that browser only; it does not currently sync with the Android vault.
+- It uses AES-256-GCM encryption with PBKDF2-HMAC-SHA256 key derivation.
+- QR scanning is not included; setup keys must be entered manually.
 
 ## Android authenticator
 
@@ -24,10 +34,12 @@ OTP Hub is a privacy-first authenticator workspace with username/password accoun
 
 ## Security notes
 
-- The server stores password hashes, recovery-code hashes, session-token hashes, and encrypted vault backups.
-- TOTP setup keys are encrypted on the client before backup. The vault passphrase is not sent to the server.
+- The server stores password hashes, recovery-code hashes, session-token hashes, and encrypted Android vault backups.
+- TOTP setup keys in the Android vault are encrypted on the client before backup. The vault passphrase is not sent to the server.
 - Keep the account recovery code and vault passphrase separate and private.
+- The database denies direct table access to client roles; narrowly scoped RPC functions provide the intended account operations.
 - This is an early testing build, not a production security-audited authenticator. The APK is a debug-signed prerelease.
+- Public account/recovery RPCs still need abuse-rate limiting and independent security review before production use.
 - OTP Hub does not read SMS, WhatsApp, or email inboxes, and does not intercept or forward incoming login codes.
 
 ## Web stack
@@ -35,6 +47,7 @@ OTP Hub is a privacy-first authenticator workspace with username/password accoun
 - Next.js App Router
 - TypeScript
 - Supabase Postgres RPC functions
+- Vercel production deployment
 
 ## Android build
 
