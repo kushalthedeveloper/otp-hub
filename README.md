@@ -1,35 +1,41 @@
 # OTP Hub
 
-A privacy-first personal authentication workspace.
+OTP Hub is a privacy-first authenticator workspace with username/password accounts and an Android companion app.
 
-## Current scope
+## Account system
 
-This repository starts with a responsive web dashboard scaffold. The initial version uses clearly labeled sample data only. It does **not** read SMS, WhatsApp, or email messages, forward login codes, or collect third-party credentials.
+- Username + password registration and login; no email or phone number is required.
+- Usernames are 3–24 characters: lowercase letters, numbers, and underscores.
+- Passwords must be 12–128 characters.
+- Registration returns a one-time recovery code. Save it privately and offline.
+- Account sessions are validated by the Supabase-backed RPC functions.
 
-## Security direction
+## Android authenticator
 
-- Never request or store email, WhatsApp, or other account passwords.
-- Do not intercept or remotely relay one-time login codes from messaging apps.
-- Future integrations must use official OAuth/API permissions and explicit user consent.
-- Prefer a local authenticator design for user-controlled TOTP secrets, with encryption and recovery guidance.
-- Keep secrets out of logs, analytics, URLs, and public repositories.
-- Add server-side authorization and row-level security before connecting any database.
+- Android project: `android/`
+- Minimum Android version: Android 8.0 (API 26)
+- Sign in or register using the same OTP Hub account as the website.
+- Generate TOTP codes from setup keys that the user intentionally enters.
+- Encrypt the vault with a separate passphrase using PBKDF2-HMAC-SHA256 and AES-256-GCM.
+- Sync only the encrypted vault payload to the account database.
+- Current build accepts manual Base32 setup keys; QR scanning is not included yet.
 
-## Stack
+[Download the current Android testing APK](https://github.com/kushalthedeveloper/otp-hub/releases/download/android-build-6/app-debug.apk)
+
+## Security notes
+
+- The server stores password hashes, recovery-code hashes, session-token hashes, and encrypted vault backups.
+- TOTP setup keys are encrypted on the client before backup. The vault passphrase is not sent to the server.
+- Keep the account recovery code and vault passphrase separate and private.
+- This is an early testing build, not a production security-audited authenticator. The APK is a debug-signed prerelease.
+- OTP Hub does not read SMS, WhatsApp, or email inboxes, and does not intercept or forward incoming login codes.
+
+## Web stack
 
 - Next.js App Router
 - TypeScript
-- CSS modules / global CSS (no UI framework required)
+- Supabase Postgres RPC functions
 
-## Run locally
+## Android build
 
-```bash
-npm install
-npm run dev
-```
-
-Open http://localhost:3000.
-
-## Status
-
-Early UI scaffold. Authentication, encrypted vault storage, official provider integrations, and production deployment are not implemented yet.
+GitHub Actions builds the APK from `.github/workflows/android.yml`. Builds are published as prereleases in GitHub Releases.
