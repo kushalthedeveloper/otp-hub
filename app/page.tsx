@@ -35,6 +35,7 @@ export default function Home() {
           <button className="nav-item active"><span>⌂</span> Overview</button>
           <a className="nav-item" href="/authenticator"><span>◈</span> Authenticator</a>
           <a className="nav-item" href="/download"><span>↓</span> Download app</a>
+          <a className="nav-item" href="/account"><span>◎</span> Account / Sign in</a>
           <button className="nav-item" onClick={() => setActive("email")}><span>✉</span> Email connections</button>
           <button className="nav-item" onClick={() => setActive("device")}><span>▣</span> Devices</button>
         </nav>
@@ -47,7 +48,7 @@ export default function Home() {
           </div>
           <div className="profile-row">
             <div className="avatar">K</div>
-            <div><strong>Personal workspace</strong><small>Demo account</small></div>
+            <div><strong>OTP Hub account</strong><small>Username login</small></div>
             <span className="more">•••</span>
           </div>
         </div>
@@ -58,7 +59,7 @@ export default function Home() {
           <button className="mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle menu">☰</button>
           <div className="breadcrumb">Workspace <span>/</span> <strong>Overview</strong></div>
           <div className="top-actions">
-            <span className="status-pill"><i /> Demo environment</span>
+            <a className="status-pill" href="/account" style={{ textDecoration: "none" }}><i /> Account / Sign in</a>
             <button className="icon-button" aria-label="Notifications">♧</button>
             <div className="top-avatar">K</div>
           </div>
