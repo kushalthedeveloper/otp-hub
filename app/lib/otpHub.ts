@@ -34,3 +34,7 @@ export async function rpc<T = unknown>(name: string, args: Record<string, unknow
 export async function validateAccount(token: string) {
   return rpc<{ username: string }>("otp_hub_session", { p_token: token });
 }
+
+export async function getEncryptedInbox(token: string) {
+  return rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
+}
