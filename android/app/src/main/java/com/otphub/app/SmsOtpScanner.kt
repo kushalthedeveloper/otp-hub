@@ -34,7 +34,7 @@ object SmsOtpScanner {
             projection,
             null,
             null,
-            "${Telephony.Sms.DATE} DESC"
+            "${Telephony.Sms.DATE} DESC LIMIT 5"
         )?.use { cursor ->
             val addressIndex = cursor.getColumnIndex(Telephony.Sms.ADDRESS)
             val dateIndex = cursor.getColumnIndex(Telephony.Sms.DATE)
