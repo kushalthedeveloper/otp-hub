@@ -269,7 +269,7 @@ class MainActivity : Activity() {
             val code = item.optString("code")
             val time = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.optLong("receivedAt")))
             root.addView(TextView(this).apply {
-                text = "$source\\n$code\\n$time"
+                text = "$source\n$code\n$time"
                 textSize = 17f
                 setTextColor(0xFF29213F.toInt())
                 setPadding(dp(16), dp(14), dp(16), dp(14))
