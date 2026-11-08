@@ -50,6 +50,8 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteCommandId, setRemoteCommandId] = useState("");
+  const [remoteStatus, setRemoteStatus] = useState("idle");
+  const [remoteRequestedAt, setRemoteRequestedAt] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const lastPayloadRef = useRef<string>("");
@@ -110,6 +112,19 @@ export default function Home() {
 
 
   useEffect(() => {
+    if (!token) return;
+    try {
+      const saved = sessionStorage.getItem("otp-hub-remote-scan");
+      if (saved) {
+        const record = JSON.parse(saved) as { commandId?: string; status?: string; requestedAt?: string };
+        if (record.status) setRemoteStatus(record.status);
+        if (record.requestedAt) setRemoteRequestedAt(record.requestedAt);
+        if (record.commandId && ["pending", "running"].includes(record.status || "")) setRemoteCommandId(record.commandId);
+      }
+    } catch { /* Ignore an invalid local status record. */ }
+  }, [token]);
+
+  useEffect(() => {
     if (!remoteCommandId || !token || passphrase.length < 12) return;
     let stopped = false;
     let inFlight = false;
@@ -122,6 +137,10 @@ export default function Home() {
           { p_token: token, p_command_id: remoteCommandId }
         );
         if (stopped) return;
+        const requestedAt = remoteRequestedAt || new Date().toISOString();
+        setRemoteStatus(result.status);
+        setRemoteRequestedAt(requestedAt);
+        sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ commandId: remoteCommandId, status: result.status, requestedAt }));
         if (result.status === "completed" && result.encrypted_result) {
           const decrypted = await decryptInbox(result.encrypted_result, passphrase);
           if (!stopped) {
@@ -129,6 +148,8 @@ export default function Home() {
             setRevealed({});
             setNotice("SMS scan completed. Showing up to five newest OTP matches.");
             setError("");
+            setRemoteStatus("completed");
+            sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ status: "completed", requestedAt }));
             setRemoteCommandId("");
           }
         } else if (result.status === "failed" || result.status === "expired") {
@@ -136,6 +157,8 @@ export default function Home() {
             ? "SMS permission is no longer available. Re-enable it in the Android app."
             : "The phone could not complete the SMS scan. Check that Remote SMS Scan is enabled.";
           setError(reason);
+          setRemoteStatus(result.status);
+          sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ status: result.status, requestedAt }));
           setRemoteCommandId("");
         }
       } catch {
@@ -147,7 +170,7 @@ export default function Home() {
     void pollRemote();
     const timer = window.setInterval(() => void pollRemote(), 4000);
     return () => { stopped = true; window.clearInterval(timer); };
-  }, [remoteCommandId, token, passphrase]);
+  }, [remoteCommandId, token, passphrase, remoteRequestedAt]);
 
   async function requestSmsScan() {
     setRemoteBusy(true);
@@ -159,8 +182,12 @@ export default function Home() {
         { p_token: token }
       );
       if (!response?.command_id) throw new Error("The phone did not accept the scan request.");
+      const requestedAt = new Date().toISOString();
       setRemoteCommandId(response.command_id);
-      setNotice("SMS scan requested. Keep this dashboard open; Android may defer background work.");
+      setRemoteStatus("pending");
+      setRemoteRequestedAt(requestedAt);
+      sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ commandId: response.command_id, status: "pending", requestedAt }));
+      setNotice("SMS scan request accepted. Waiting for the phone to pick it up; this does not mean scanning has started yet.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not request an SMS scan. Make sure the phone is paired and online.");
     } finally {
@@ -252,6 +279,12 @@ export default function Home() {
               </button>
               <span style={muted}>Requires the phone's opt-in SMS permission and Remote SMS Scan switch. Background delivery can be delayed by Android.</span>
             </div>
+            {remoteStatus !== "idle" && <div role="status" aria-live="polite" style={scanStatusCard}>
+              <strong style={{display:"block",color:"#eee9ff",marginBottom:5}}>Latest SMS scan request</strong>
+              <span style={scanStatusLabel}>{remoteStatus === "pending" ? "REQUESTED · WAITING FOR PHONE" : remoteStatus === "running" ? "SCANNING ON PHONE" : remoteStatus === "completed" ? "COMPLETED" : remoteStatus === "failed" ? "FAILED" : remoteStatus === "expired" ? "EXPIRED · NOT COMPLETED" : remoteStatus.toUpperCase()}</span>
+              <p style={muted}>Requested: {remoteRequestedAt ? new Date(remoteRequestedAt).toLocaleString() : "Time unavailable"}</p>
+              <p style={muted}>{remoteStatus === "pending" ? "The website has queued the request. The phone has not confirmed that scanning has started." : remoteStatus === "running" ? "The phone has claimed the request and is processing the five newest SMS inbox entries." : remoteStatus === "completed" ? "The phone reported completion. Up to five OTP matches from the five newest messages were returned." : remoteStatus === "expired" ? "The phone did not complete this request before it expired." : remoteStatus === "failed" ? "The phone reported that it could not complete this scan. See the message above for the reason." : "Scan request status."}</p>
+            </div>}
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
               <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><strong style={{display:"block",color:"#d9d0ff",fontSize:13,marginBottom:5}}>{item.source || "Unknown service"}</strong><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
@@ -301,6 +334,8 @@ const code: React.CSSProperties = { fontSize:25, letterSpacing:3, fontWeight:800
 const smallButton: React.CSSProperties = { border:"1px solid #44445d", borderRadius:8, padding:"8px 10px", background:"#1a1e30", color:"#d8d1ec", cursor:"pointer", fontSize:12 };
 const danger: React.CSSProperties = { border:"1px solid #75414b", borderRadius:8, padding:"10px 13px", background:"#2b1820", color:"#ffb7c0", cursor:"pointer" };
 const success: React.CSSProperties = { color:"#80e0b5", fontSize:12, lineHeight:1.6, marginTop:14 };
+const scanStatusCard: React.CSSProperties = { margin:"12px 0 18px", padding:14, border:"1px solid #514779", borderRadius:11, background:"#17172a" };
+const scanStatusLabel: React.CSSProperties = { display:"inline-block", color:"#c7b8ff", fontSize:12, fontWeight:800, letterSpacing:".6px" };
 const failure: React.CSSProperties = { color:"#ff9ca9", fontSize:12, lineHeight:1.6, marginTop:14 };
 const instructions: React.CSSProperties = { marginTop:22, padding:20, border:"1px solid #292f42", borderRadius:14, background:"#141a28" };
 const steps: React.CSSProperties = { color:"#b7bbca", fontSize:13, lineHeight:1.9, paddingLeft:22 };
