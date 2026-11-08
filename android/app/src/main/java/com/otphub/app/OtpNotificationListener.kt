@@ -56,15 +56,28 @@ class OtpNotificationListener : NotificationListenerService() {
 
         val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
         val old = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
-        val next = JSONArray()
         val now = System.currentTimeMillis()
-        next.put(JSONObject().put("code", code).put("source", source).put("receivedAt", now))
+        val history = mutableListOf<JSONObject>()
+        // Keep distinct OTP events in history. Only suppress duplicate callbacks
+        // for the same code/source arriving within a short 30-second window.
+        val duplicateCallback = (0 until old.length()).any { i ->
+            val item = old.optJSONObject(i) ?: return@any false
+            item.optString("code") == code &&
+                item.optString("source", "Unknown app") == source &&
+                kotlin.math.abs(now - item.optLong("receivedAt")) <= 30_000L
+        }
+        if (!duplicateCallback) {
+            history.add(JSONObject().put("code", code).put("source", source).put("receivedAt", now))
+        }
         for (i in 0 until old.length()) {
             val item = old.optJSONObject(i) ?: continue
             val receivedAt = item.optLong("receivedAt")
-            val sameEntry = item.optString("code") == code && item.optString("source", "Unknown app") == source
-            if (now - receivedAt <= 24L * 60L * 60L * 1000L && !sameEntry && next.length() < 10) next.put(item)
+            if (now - receivedAt <= 7L * 24L * 60L * 60L * 1000L) history.add(JSONObject(item.toString()))
         }
+        // Newest first; cap local history to 50 events to avoid unbounded storage.
+        history.sortByDescending { it.optLong("receivedAt") }
+        val next = JSONArray()
+        history.take(50).forEach { next.put(it) }
         prefs.edit().putString("detected", next.toString()).apply()
 
         val autoPrefs = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
