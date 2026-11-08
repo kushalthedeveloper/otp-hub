@@ -22,7 +22,6 @@ import android.util.Base64
 import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-import androidx.core.content.ContextCompat
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -282,7 +281,7 @@ class MainActivity : Activity() {
                     if (protected.isBlank()) {
                         remoteSwitch.isChecked = false
                         message("First enable Automatic encrypted sync below. It encrypts SMS scan results before upload.")
-                    } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+                    } else if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
                         remoteSwitch.isChecked = false
                         requestPermissions(arrayOf(Manifest.permission.READ_SMS), REQUEST_REMOTE_SMS_PERMISSION)
                     } else {
