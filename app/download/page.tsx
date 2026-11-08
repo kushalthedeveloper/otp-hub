@@ -9,7 +9,7 @@ export default function DownloadPage() {
         <section style={{ background: "#151a29", border: "1px solid #34304e", borderRadius: 18, padding: 26, marginTop: 28 }}>
           <h2 style={{ marginTop: 0 }}>Latest Android testing build · build 31</h2>
           <p style={{ color: "#a8a8bb", lineHeight: 1.7 }}>This is a debug/testing APK, not a production-signed release. Android may display an installation warning.</p>
-          <a href="https://github.com/kushalthedeveloper/otp-hub/releases/download/android-build-31/app-debug.apk" style={{ display: "inline-block", padding: "14px 22px", borderRadius: 10, background: "linear-gradient(135deg,#9476f0,#7053d2)", color: "white", fontWeight: 700, textDecoration: "none" }}>Download Android APK ↓</a>
+          <a href="https://github.com/kushalthedeveloper/otp-hub/releases/download/android-build-38/app-debug.apk" style={{ display: "inline-block", padding: "14px 22px", borderRadius: 10, background: "linear-gradient(135deg,#9476f0,#7053d2)", color: "white", fontWeight: 700, textDecoration: "none" }}>Download Android APK ↓</a>
           <p style={{ fontSize: 12, color: "#9398ad", marginBottom: 0 }}>Requires Android 8.0 or newer. Download only from the official OTP Hub repository.</p>
         </section>
         <section style={{ marginTop: 28, lineHeight: 1.8, color: "#b8bac9" }}>
