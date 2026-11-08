@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { rpc, saveAccount, type AccountResult } from "../lib/otpHub";
 
 type Mode = "login" | "register" | "recover";
 
 export default function AccountPage() {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +28,7 @@ export default function AccountPage() {
         setNotice("Account created. Save this one-time recovery code before leaving this page.");
       } else if (mode === "login") {
         const result = await rpc<AccountResult>("otp_hub_login", { p_username: username, p_password: password });
-        saveAccount(result); setNotice("Signed in successfully. Your account is ready.");
+        saveAccount(result); setNotice("Signed in successfully. Opening your dashboard…"); router.replace("/");
       } else {
         const result = await rpc<Array<{ username: string; recovery_code: string }>>("otp_hub_recover", { p_username: username, p_recovery_code: recovery, p_new_password: newPassword });
         const item = Array.isArray(result) ? result[0] : undefined;
