@@ -67,7 +67,7 @@ export default function AccountPage() {
             {recoveryCode && <div style={{ background: "#f4f0ff", padding: 16, borderRadius: 10, margin: "14px 0" }}><strong>Recovery code — save it now</strong><p style={{ fontSize: 20, fontWeight: 700, letterSpacing: 1 }}>{recoveryCode}</p><small>This code is shown once. Keep it private and offline.</small></div>}
             <button disabled={busy} type="submit" style={{ width: "100%", border: 0, borderRadius: 10, padding: 15, background: "#6849c8", color: "white", fontWeight: 700, marginTop: 16, opacity: busy ? .6 : 1 }}>{busy ? "Please wait…" : mode === "login" ? "Sign in" : mode === "register" ? "Create account" : "Reset password"}</button>
           </form>
-          <p style={{ color: "#777287", fontSize: 12, lineHeight: 1.5, marginTop: 18 }}>Your account password and vault passphrase are separate. Never share either one or your recovery code.</p>
+          <p style={{ color: "#777287", fontSize: 12, lineHeight: 1.5, marginTop: 18 }}>Your account password also encrypts your synced OTP inbox. Keep it private along with your recovery code.</p>
         </section>
       </div>
     </main>
