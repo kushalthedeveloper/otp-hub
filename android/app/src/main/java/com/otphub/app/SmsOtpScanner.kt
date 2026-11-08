@@ -40,7 +40,7 @@ object SmsOtpScanner {
             val dateIndex = cursor.getColumnIndex(Telephony.Sms.DATE)
             val bodyIndex = cursor.getColumnIndex(Telephony.Sms.BODY)
             var examined = 0
-            while (cursor.moveToNext() && examined < 500 && results.size < 5) {
+            while (cursor.moveToNext() && examined < 5 && results.size < 5) {
                 examined++
                 val body = cursor.getString(bodyIndex).orEmpty()
                 val code = contextBeforeCode.find(body)?.groupValues?.getOrNull(1)
