@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { clearAccount, getSavedAccount, rpc, validateAccount } from "./lib/otpHub";
@@ -50,6 +50,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const lastPayloadRef = useRef<string>("");
 
   useEffect(() => {
     let active = true;
@@ -71,16 +72,49 @@ export default function Home() {
   }, [router]);
 
   const recentItems = useMemo(() => items.filter((item) => Date.now() - item.receivedAt <= 24 * 60 * 60 * 1000), [items]);
+  useEffect(() => {
+    if (!unlocked || !token || passphrase.length < 12) return;
+    let stopped = false;
+    let inFlight = false;
+    const poll = async () => {
+      if (stopped || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      try {
+        const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
+        const signature = JSON.stringify(payload ?? null);
+        if (!stopped && signature !== lastPayloadRef.current) {
+          const nextItems = payload ? await decryptInbox(payload, passphrase) : [];
+          if (!stopped) {
+            lastPayloadRef.current = signature;
+            setItems(nextItems);
+            setRevealed({});
+            setNotice("New phone sync received. Inbox updated automatically.");
+            setError("");
+          }
+        }
+      } catch {
+        // Keep the last decrypted inbox visible; the next poll retries.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [unlocked, token, passphrase]);
+
 
   async function unlockInbox() {
     setBusy(true); setError(""); setNotice("");
     try {
       if (passphrase.length < 12) throw new Error("Enter your OTP Hub account password (at least 12 characters).");
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
-      if (!payload) { setItems([]); setUnlocked(true); setNotice("Inbox unlocked. No phone sync has been uploaded yet."); return; }
+      if (!payload) { lastPayloadRef.current = "null"; setItems([]); setUnlocked(true); setNotice("Inbox unlocked. No phone sync has been uploaded yet."); return; }
       const decrypted = await decryptInbox(payload, passphrase);
       setItems(decrypted);
-      await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: await encryptInbox(decrypted, passphrase) });
+      const normalizedPayload = await encryptInbox(decrypted, passphrase);
+      await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: normalizedPayload });
+      lastPayloadRef.current = JSON.stringify(normalizedPayload);
       setUnlocked(true);
       setRevealed({});
       setNotice("Encrypted inbox unlocked on this device. The server stores only encrypted data.");
@@ -94,7 +128,11 @@ export default function Home() {
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
       const decrypted = payload ? await decryptInbox(payload, passphrase) : [];
       setItems(decrypted);
-      if (payload) await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: await encryptInbox(decrypted, passphrase) });
+      if (payload) {
+        const normalizedPayload = await encryptInbox(decrypted, passphrase);
+        await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: normalizedPayload });
+        lastPayloadRef.current = JSON.stringify(normalizedPayload);
+      } else lastPayloadRef.current = "null";
       setRevealed({});
       setNotice("Inbox refreshed from encrypted cloud storage.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh the inbox."); }
@@ -107,6 +145,7 @@ export default function Home() {
     try {
       const encrypted = await encryptInbox([], passphrase);
       await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: encrypted });
+      lastPayloadRef.current = JSON.stringify(encrypted);
       setItems([]); setRevealed({});
       setNotice("Synced OTP inbox cleared.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not clear the inbox."); }
@@ -117,7 +156,7 @@ export default function Home() {
     setBusy(true);
     try { await rpc("otp_hub_logout", { p_token: token }); } catch {}
     clearAccount();
-    setPassphrase(""); setItems([]);
+    setPassphrase(""); setItems([]); lastPayloadRef.current = "";
     router.replace("/account");
   }
 
@@ -139,8 +178,8 @@ export default function Home() {
             <input style={input} type="password" autoComplete="current-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Your sign-in password (12+ characters)" />
             <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Unlocking…" : "Unlock encrypted inbox"}</button>
           </> : <>
-            <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"}</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
-            {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access in the Android app, wait for a new verification notification, then sync from the phone.</p></div> :
+            <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
+            {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access in the Android app, wait for a new verification notification, then tap Sync in the phone app. This inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
               <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
           </>}
@@ -153,13 +192,13 @@ export default function Home() {
           <ol style={steps}>
             <li>Open OTP Hub on your phone and sign in to the same account.</li>
             <li>Choose <b>Enable OTP notification scanning</b>. Android's Notification Access is a broad permission: the listener can receive notification metadata from apps on your phone, so enable it only if you are comfortable with that access.</li>
-            <li>Return to the app, enter your vault passphrase, and tap <b>Sync detected OTPs to website</b>.</li>
-            <li>Unlock this page with that same passphrase to view the encrypted inbox.</li>
+            <li>Return to the app, enter your OTP Hub account password, and tap <b>Sync OTPs to website</b>. The phone sends only the encrypted snapshot after you tap Sync.</li>
+            <li>Unlock this page with that same password. While the inbox remains unlocked and this tab is visible, it checks for new uploads every 2 seconds and updates automatically.</li>
           </ol>
           <p style={warning}>Privacy: only notification-derived numeric code candidates are supported. OTPs are sensitive account credentials. Keep this inbox private, do not share codes, and avoid syncing codes from accounts you do not control. Notification access can expose previews from selected apps, so enable it only if you understand that permission.</p>
         </section>
 
-        <footer style={footer}><Link href="/download" style={link}>Android app</Link><Link href="/authenticator" style={link}>Authenticator vault</Link><Link href="/account" style={link}>Account settings</Link></footer>
+        <footer style={footer}><Link href="/download" style={link}>Android app</Link><Link href="/account" style={link}>Account settings</Link></footer>
       </section>
     </main>
   );
