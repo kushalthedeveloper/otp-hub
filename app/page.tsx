@@ -35,7 +35,7 @@ async function decryptInbox(payload: Record<string, string>, passphrase: string)
   const parsed = JSON.parse(new TextDecoder().decode(clear));
   if (!Array.isArray(parsed)) throw new Error("Inbox data is not valid.");
   const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  return parsed.filter((item) => typeof item?.code === "string" && /^\\d{4,8}$/.test(item.code) && Number(item.receivedAt) >= cutoff).slice(0, 10);
+  return parsed.filter((item) => typeof item?.code === "string" && /^\d{4,8}$/.test(item.code) && Number(item.receivedAt) >= cutoff).slice(0, 10);
 }
 
 export default function Home() {
