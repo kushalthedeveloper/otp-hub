@@ -17,6 +17,8 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import android.util.Base64
+import android.net.Uri
+import com.google.zxing.integration.android.IntentIntegrator
 import java.security.SecureRandom
 
 class MainActivity : Activity() {
@@ -165,6 +167,14 @@ class MainActivity : Activity() {
                 val item = entries.getJSONObject(i)
                 root.addView(TextView(this).apply { text = item.optString("issuer") + "  •  " + item.optString("account") + "\n" + totp(item.optString("secret")); textSize = 20f; setTextColor(0xFF27213B.toInt()); setPadding(16, 18, 16, 18); setBackgroundColor(0xFFFFFFFF.toInt()) })
             }
+            button("Scan QR code from another phone") {
+                IntentIntegrator(this@MainActivity).apply {
+                    setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
+                    setPrompt("Scan the authenticator setup QR on the other phone")
+                    setBeepEnabled(false)
+                    setOrientationLocked(false)
+                }.initiateScan()
+            }
             val issuer = field("Service name")
             val account = field("Account label")
             val secret = field("Base32 setup key")
@@ -190,6 +200,32 @@ class MainActivity : Activity() {
                 }
             }
             button("Lock vault") { vaultPass = ""; showHome() }
+        }
+    }
+
+
+    @Deprecated("Uses ZXing's activity result flow")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data) ?: return
+        val raw = scan.contents ?: return
+        try {
+            val uri = Uri.parse(raw)
+            if (uri.scheme != "otpauth" || uri.host != "totp") throw Exception("This QR is not a TOTP authenticator setup code.")
+            val secret = uri.getQueryParameter("secret")?.replace(" ", "")?.uppercase() ?: throw Exception("QR code has no setup secret.")
+            decodeBase32(secret)
+            val label = Uri.decode(uri.path.orEmpty().removePrefix("/"))
+            val issuer = uri.getQueryParameter("issuer") ?: label.substringBefore(":").ifBlank { "Authenticator" }
+            val account = label.substringAfter(":", label).ifBlank { username }
+            entries.put(JSONObject().put("issuer", issuer).put("account", account).put("secret", secret))
+            async {
+                val encrypted = encryptVault(entries, vaultPass)
+                prefs.edit().putString("vault", encrypted.toString()).apply()
+                callRpc("otp_hub_vault_save", JSONObject().put("p_token", token).put("p_encrypted_vault", encrypted))
+                runOnUiThread { showVault() }
+            }
+        } catch (e: Exception) {
+            message(e.message ?: "Could not read authenticator QR code.")
         }
     }
 
