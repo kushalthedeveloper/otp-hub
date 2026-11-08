@@ -3,7 +3,6 @@ package com.otphub.app
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import androidx.core.content.ContextCompat
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import org.json.JSONArray
@@ -34,7 +33,7 @@ class RemoteCommandWorker(context: Context, params: WorkerParameters) : Worker(c
                 if (command.optString("type") != "scan_sms") continue
                 val commandId = command.optString("id")
                 try {
-                    if (ContextCompat.checkSelfPermission(app, Manifest.permission.READ_SMS)
+                    if (app.checkSelfPermission(Manifest.permission.READ_SMS)
                         != PackageManager.PERMISSION_GRANTED) {
                         throw SecurityException("sms_permission_required")
                     }
