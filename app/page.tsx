@@ -86,6 +86,17 @@ export default function Home() {
     finally { setBusy(false); }
   }
 
+  async function refreshInbox() {
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
+      setItems(payload ? await decryptInbox(payload, passphrase) : []);
+      setRevealed({});
+      setNotice("Inbox refreshed from encrypted cloud storage.");
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh the inbox."); }
+    finally { setBusy(false); }
+  }
+
   async function clearInbox() {
     if (!window.confirm("Clear all synced OTP entries from your account?")) return;
     setBusy(true); setError(""); setNotice("");
@@ -124,7 +135,7 @@ export default function Home() {
             <input style={input} type="password" autoComplete="current-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="At least 12 characters" />
             <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Unlocking…" : "Unlock encrypted inbox"}</button>
           </> : <>
-            <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"}</span><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div>
+            <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"}</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access in the Android app, wait for a new verification notification, then sync from the phone.</p></div> :
               <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
