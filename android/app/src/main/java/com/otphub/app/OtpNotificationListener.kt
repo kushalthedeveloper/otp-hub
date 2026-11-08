@@ -24,10 +24,12 @@ class OtpNotificationListener : NotificationListenerService() {
         val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
         val old = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
         val next = JSONArray()
-        next.put(JSONObject().put("code", code).put("receivedAt", System.currentTimeMillis()))
-        for (i in 0 until minOf(old.length(), 9)) {
+        val now = System.currentTimeMillis()
+        next.put(JSONObject().put("code", code).put("receivedAt", now))
+        for (i in 0 until old.length()) {
             val item = old.optJSONObject(i) ?: continue
-            if (item.optString("code") != code) next.put(item)
+            val receivedAt = item.optLong("receivedAt")
+            if (now - receivedAt <= 24L * 60L * 60L * 1000L && item.optString("code") != code && next.length() < 10) next.put(item)
         }
         prefs.edit().putString("detected", next.toString()).apply()
     }
