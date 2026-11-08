@@ -124,8 +124,6 @@ class MainActivity : Activity() {
                 remotePrefs.edit().putBoolean("enabled", false).apply()
                 WorkManager.getInstance(applicationContext).cancelUniqueWork("otp-hub-remote-commands-now")
                 WorkManager.getInstance(applicationContext).cancelUniqueWork("otp-hub-remote-commands")
-                WorkManager.getInstance(applicationContext).cancelUniqueWork("otp-hub-remote-commands-periodic")
-                WorkManager.getInstance(applicationContext).cancelUniquePeriodicWork("otp-hub-remote-commands")
             }
             runOnUiThread { showHome() }
         }
