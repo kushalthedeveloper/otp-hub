@@ -137,7 +137,11 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         runOnUiThread {
-            baseLayout("Welcome, $username", "This Android app is connected to your OTP Hub account.")
+            baseLayout("Welcome, $username", "Your personal OTP inbox is ready to configure.")
+            button("Enable OTP notification scanning") {
+                startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            }
+            button("View detected OTPs") { showDetectedOtps() }
             val pass = field("Vault passphrase (12+ characters)", true)
             button("Unlock and sync encrypted vault") {
                 if (pass.text.length < 12) { message("Use at least 12 characters for your vault passphrase."); return@button }
@@ -156,6 +160,48 @@ class MainActivity : Activity() {
                 async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
             }
             root.addView(TextView(this).apply { text = "Your TOTP secrets are encrypted before cloud backup. The account server stores only the encrypted vault."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
+        }
+    }
+
+    private fun showDetectedOtps() {
+        runOnUiThread {
+            val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+            val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
+            baseLayout("Detected OTPs", "Only numeric code candidates are kept locally on this phone. Source notification text is not stored.")
+            if (detected.length() == 0) {
+                root.addView(TextView(this).apply {
+                    text = "No OTP notifications detected yet. Enable notification access, then wait for a new verification notification."
+                    textSize = 15f
+                    setTextColor(0xFF656174.toInt())
+                    setPadding(0, 18, 0, 18)
+                })
+            }
+            for (i in 0 until detected.length()) {
+                val item = detected.optJSONObject(i) ?: continue
+                val code = item.optString("code")
+                val time = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.optLong("receivedAt")))
+                root.addView(TextView(this).apply {
+                    text = "$code\n$time"
+                    textSize = 24f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(0xFF27213B.toInt())
+                    setPadding(18, 18, 18, 18)
+                    setBackgroundColor(0xFFFFFFFF.toInt())
+                })
+                root.addView(Button(this).apply {
+                    text = "Copy code"
+                    setOnClickListener {
+                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OTP", code))
+                        message("Code copied.")
+                    }
+                })
+            }
+            button("Clear detected codes") {
+                prefs.edit().remove("detected").apply()
+                showDetectedOtps()
+            }
+            button("Back") { showHome() }
         }
     }
 
