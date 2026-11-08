@@ -9,8 +9,8 @@ android {
         applicationId = "com.otphub.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.0.31"
+        versionCode = 32
+        versionName = "1.0.32"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
