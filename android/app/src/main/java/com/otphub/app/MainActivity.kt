@@ -168,6 +168,20 @@ class MainActivity : Activity() {
         prefs.edit().putString("token", token).putString("username", username).apply()
     }
 
+    private fun notificationListenerStatusText(): String {
+        val enabled = android.provider.Settings.Secure.getString(
+            contentResolver, "enabled_notification_listeners"
+        ).orEmpty().contains(packageName)
+        val state = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
+        val connectedAt = state.getLong("listener_connected_at", 0L)
+        val disconnectedAt = state.getLong("listener_disconnected_at", 0L)
+        return when {
+            !enabled -> "Listener status: access is OFF. Android is not allowing OTP Hub to read notifications."
+            connectedAt > disconnectedAt && connectedAt > 0L -> "Listener status: Android connected. Background detection is enabled while Android keeps the listener bound."
+            else -> "Listener status: access is ON, waiting for Android to connect the notification listener. Reopen this screen in a moment."
+        }
+    }
+
     private fun showHome() {
         runOnUiThread {
             baseLayout("Welcome, $username", "Your verification codes, kept simple and private.")
@@ -175,6 +189,12 @@ class MainActivity : Activity() {
             button("1  ·  Enable notification access") {
                 startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
+            root.addView(TextView(this).apply {
+                text = notificationListenerStatusText()
+                textSize = 12f
+                setTextColor(0xFF686477.toInt())
+                setPadding(dp(4), 0, dp(4), dp(10))
+            })
             sectionLabel("YOUR OTP INBOX")
             addOtpInboxToHome()
             sectionLabel("SECURE WEBSITE SYNC")
