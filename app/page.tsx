@@ -75,7 +75,7 @@ export default function Home() {
   async function unlockInbox() {
     setBusy(true); setError(""); setNotice("");
     try {
-      if (passphrase.length < 12) throw new Error("Enter the same vault passphrase you use in the Android app (at least 12 characters).");
+      if (passphrase.length < 12) throw new Error("Enter your OTP Hub account password (at least 12 characters).");
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
       if (!payload) { setItems([]); setUnlocked(true); setNotice("Inbox unlocked. No phone sync has been uploaded yet."); return; }
       const decrypted = await decryptInbox(payload, passphrase);
@@ -134,9 +134,9 @@ export default function Home() {
         <section style={inboxCard}>
           <div style={sectionHead}><div><h2 style={subheading}>Incoming OTP inbox</h2><p style={muted}>Up to 10 recent codes · auto-filtered after 24 hours</p></div><span style={lock}>AES-256-GCM</span></div>
           {!unlocked ? <>
-            <p style={body}>Phone notifications are encrypted before upload. Enter the same vault passphrase used in the Android app to decrypt them in this browser.</p>
-            <label style={label}>Vault passphrase</label>
-            <input style={input} type="password" autoComplete="current-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="At least 12 characters" />
+            <p style={body}>Phone notifications are encrypted before upload. Enter your OTP Hub account password (the same password you use to sign in) to decrypt them in this browser.</p>
+            <label style={label}>OTP Hub account password</label>
+            <input style={input} type="password" autoComplete="current-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Your sign-in password (12+ characters)" />
             <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Unlocking…" : "Unlock encrypted inbox"}</button>
           </> : <>
             <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"}</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
