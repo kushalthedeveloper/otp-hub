@@ -291,7 +291,7 @@ class MainActivity : Activity() {
             }
             root.addView(remoteSwitch, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
             root.addView(TextView(this).apply {
-                text = "When enabled, the website can request a scan of up to the latest 500 SMS inbox entries. Only the five newest OTP matches are encrypted and returned. The phone checks queued requests periodically; Android may delay background work."
+                text = "When enabled, the website can request a scan of only the 5 newest SMS inbox entries. No older messages are examined. Up to 5 OTP matches from those entries are encrypted and returned. The phone checks queued requests periodically; Android may delay background work."
                 textSize = 12f
                 setTextColor(0xFF686477.toInt())
                 setPadding(dp(4), 0, dp(4), dp(12))
