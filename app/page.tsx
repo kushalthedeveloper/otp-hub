@@ -61,8 +61,11 @@ export default function Home() {
         const account = await validateAccount(saved.token);
         if (!active) return;
         if (!account?.username) { clearAccount(); router.replace("/account"); return; }
+        const inboxKey = sessionStorage.getItem("otp-hub-inbox-key") || "";
+        if (inboxKey.length < 12) { router.replace("/account"); return; }
         setToken(saved.token);
         setUsername(account.username);
+        setPassphrase(inboxKey);
       } catch {
         if (active) { clearAccount(); router.replace("/account"); }
       } finally { if (active) setChecking(false); }
@@ -122,6 +125,10 @@ export default function Home() {
     finally { setBusy(false); }
   }
 
+  useEffect(() => {
+    if (!checking && token && passphrase.length >= 12 && !unlocked) void unlockInbox();
+  }, [checking, token, passphrase, unlocked]);
+
   async function refreshInbox() {
     setBusy(true); setError(""); setNotice("");
     try {
@@ -173,10 +180,9 @@ export default function Home() {
         <section style={inboxCard}>
           <div style={sectionHead}><div><h2 style={subheading}>Unified OTP inbox</h2><p style={muted}>Up to 10 recent codes · service name and time · auto-filtered after 24 hours</p></div><span style={lock}>AES-256-GCM</span></div>
           {!unlocked ? <>
-            <p style={body}>Phone notifications are encrypted on your device before upload. Enter your OTP Hub account password (the same password you use to sign in) to decrypt them in this browser.</p>
-            <label style={label}>OTP Hub account password</label>
-            <input style={input} type="password" autoComplete="current-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Your sign-in password (12+ characters)" />
-            <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Unlocking…" : "Unlock encrypted inbox"}</button>
+            <p style={body}>Your inbox is being decrypted using the account password from this sign-in session. No second vault password is needed.</p>
+            <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Opening inbox…" : "Retry opening inbox"}</button>
+            <button style={textButton} onClick={() => router.replace("/account")}>Sign in again</button>
           </> : <>
             <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
@@ -193,7 +199,7 @@ export default function Home() {
             <li>Open OTP Hub on your phone and sign in to the same account.</li>
             <li>Choose <b>Enable notification access</b>. Android's Notification Access is a broad permission: the listener can receive notification metadata from apps on your phone, so enable it only if you are comfortable with that access.</li>
             <li>Return to the app, enter your OTP Hub account password in the sync field, and turn on <b>Automatic encrypted sync</b>. New detected OTP candidates are encrypted and uploaded in the background. Manual Sync remains available as a fallback.</li>
-            <li>Unlock this page with that same password. While the inbox remains unlocked and this tab is visible, it checks for new uploads every 2 seconds and updates automatically. Android battery saver, connectivity, and background limits may delay phone uploads.</li>
+            <li>The inbox opens using the password from your account sign-in. While the inbox remains unlocked and this tab is visible, it checks for new uploads every 2 seconds and updates automatically. Android battery saver, connectivity, and background limits may delay phone uploads.</li>
           </ol>
           <p style={warning}>Privacy: only notification-derived numeric code candidates are supported. OTPs are sensitive account credentials. Keep this inbox private, do not share codes, and avoid syncing codes from accounts you do not control. Notification access can expose previews from selected apps, so enable it only if you understand that permission.</p>
         </section>
