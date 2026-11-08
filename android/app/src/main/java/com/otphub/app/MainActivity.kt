@@ -216,7 +216,19 @@ class MainActivity : Activity() {
                                 .putBoolean("enabled", true)
                                 .putString("protected_passphrase", AutoSyncCrypto.protect(this, phrase))
                                 .apply()
-                            message("Automatic encrypted sync enabled. New detected OTP candidates will upload in the background when Android allows.")
+                            async {
+                                val notificationPrefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+                                val detected = try { JSONArray(notificationPrefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
+                                val now = System.currentTimeMillis()
+                                val recent = JSONArray()
+                                for (i in 0 until detected.length()) {
+                                    val item = detected.optJSONObject(i) ?: continue
+                                    if (now - item.optLong("receivedAt") <= 24L * 60L * 60L * 1000L) recent.put(item)
+                                }
+                                val encrypted = AutoSyncCrypto.encryptSnapshot(recent, phrase)
+                                callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
+                                runOnUiThread { message("Automatic sync enabled. Existing detected OTPs uploaded; future detections will sync automatically when Android allows.") }
+                            }
                         } catch (e: Exception) {
                             autoSwitch.isChecked = false
                             message("Could not securely enable auto sync: " + (e.message ?: "encryption error"))
