@@ -86,7 +86,7 @@ class MainActivity : Activity() {
             setSingleLine(true)
             minHeight = dp(62)
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            setBackgroundColor(0xFFFFFFFF.toInt())
+            background = rounded(0xFFFFFFFF.toInt(), 0xFFE5E1EF.toInt(), dp(14))
             if (password) inputType = 129
         }
         root.addView(edit, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(16) })
