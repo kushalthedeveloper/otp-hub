@@ -170,7 +170,6 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         runOnUiThread {
-            OtpAutoSync.enqueueSync(applicationContext)
             baseLayout("Welcome, $username", "Your verification codes, kept simple and private.")
             sectionLabel("PHONE SETUP")
             button("1  ·  Enable notification access") {
@@ -180,33 +179,29 @@ class MainActivity : Activity() {
             button("2  ·  View detected OTPs") { showDetectedOtps() }
             sectionLabel("SECURE WEBSITE SYNC")
             val pass = field("OTP Hub account password", true)
-            button("Enable automatic sync") {
+            button("Sync OTPs to website") {
                 val phrase = pass.text.toString()
                 if (phrase.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
                 async {
-                    OtpAutoSync.savePassphrase(this@MainActivity, phrase)
-                    OtpAutoSync.syncNow(this@MainActivity, token, phrase)
-                    runOnUiThread { message("Automatic sync is enabled. New detected OTPs will upload in the background when internet is available.") }
+                    val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+                    val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
+                    val now = System.currentTimeMillis()
+                    val recent = JSONArray()
+                    for (i in 0 until detected.length()) {
+                        val item = detected.optJSONObject(i) ?: continue
+                        if (now - item.optLong("receivedAt") <= 24L * 60L * 60L * 1000L) recent.put(item)
+                    }
+                    val encrypted = encryptNotificationSnapshot(recent, phrase)
+                    callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
+                    runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
-            }
-            button("Sync now") {
-                val phrase = pass.text.toString()
-                if (phrase.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
-                async {
-                    OtpAutoSync.syncNow(this@MainActivity, token, phrase)
-                    runOnUiThread { message("Encrypted OTP inbox uploaded. The website will update automatically while its inbox is open.") }
-                }
-            }
-            button("Disable automatic sync") {
-                OtpAutoSync.clearPassphrase(this@MainActivity)
-                message("Automatic sync disabled on this phone.")
             }
             sectionLabel("NEED HELP?")
             button("How to use OTP Hub") { showManual() }
             button("Sign out") {
-                async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); OtpAutoSync.clearPassphrase(this@MainActivity); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
+                async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
             }
-            root.addView(TextView(this).apply { text = "Your account password encrypts each OTP snapshot before upload. Automatic sync runs after new notifications when internet is available. The saved passphrase is encrypted on this phone with Android Keystore. The website uses the same password to unlock and live-refresh the inbox."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
+            root.addView(TextView(this).apply { text = "Your account password encrypts the OTP snapshot before it is uploaded. Sync is manual. The website uses the same password to unlock it."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
         }
     }
 
@@ -217,7 +212,7 @@ class MainActivity : Activity() {
             val sections = listOf(
                 "1. Sign in" to "Create an OTP Hub account in the app or on the website. Use the same username and account password on both. Keep your password private.",
                 "2. Enable notification access" to "Tap Enable notification access on the home screen. Android opens Notification Access settings. Find OTP Hub and enable it only if you are comfortable allowing it to read notification previews. Return to the app.",
-                "3. Turn on automatic sync" to "Enter your OTP Hub account password and tap Enable automatic sync once. The password is stored encrypted with Android Keystore on this phone. After that, new detected OTPs upload automatically when internet is available. Keep the website inbox unlocked to see new codes appear automatically.",
+                "3. Detect and sync OTPs" to "When a new verification notification arrives, tap View detected OTPs. Enter your OTP Hub account password and tap Sync OTPs to website. Open the website, sign in to the same account, and unlock the inbox with the same password. Sync is manual; it does not happen automatically.",
                 "Important privacy notes" to "Notification Access is a broad Android permission. OTP Hub keeps numeric code candidates rather than full notification text. Do not share OTPs or your account password. You can disable Notification Access any time in Android Settings. This is an early testing build, not a security-audited product."
             )
             for ((heading, body) in sections) {
