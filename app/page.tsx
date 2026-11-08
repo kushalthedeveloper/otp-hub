@@ -88,7 +88,7 @@ export default function Home() {
             lastPayloadRef.current = signature;
             setItems(nextItems);
             setRevealed({});
-            setNotice("New phone sync received. Inbox updated automatically.");
+            setNotice("New phone sync received. Unified inbox updated automatically.");
             setError("");
           }
         }
@@ -171,7 +171,7 @@ export default function Home() {
         </header>
 
         <section style={inboxCard}>
-          <div style={sectionHead}><div><h2 style={subheading}>Incoming OTP inbox</h2><p style={muted}>Up to 10 recent codes · auto-filtered after 24 hours</p></div><span style={lock}>AES-256-GCM</span></div>
+          <div style={sectionHead}><div><h2 style={subheading}>Unified OTP inbox</h2><p style={muted}>Up to 10 recent codes · service name and time · auto-filtered after 24 hours</p></div><span style={lock}>AES-256-GCM</span></div>
           {!unlocked ? <>
             <p style={body}>Phone notifications are encrypted on your device before upload. Enter your OTP Hub account password (the same password you use to sign in) to decrypt them in this browser.</p>
             <label style={label}>OTP Hub account password</label>
@@ -180,7 +180,7 @@ export default function Home() {
           </> : <>
             <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
-              <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><strong style={{display:"block",color:"#d9d0ff",fontSize:13,marginBottom:5}}>{item.source || "Unknown app"}</strong><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
+              <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><strong style={{display:"block",color:"#d9d0ff",fontSize:13,marginBottom:5}}>{item.source || "Unknown service"}</strong><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
           </>}
           {notice && <p style={success}>{notice}</p>}
