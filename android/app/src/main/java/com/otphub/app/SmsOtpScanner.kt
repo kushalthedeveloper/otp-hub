@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Telephony
-import androidx.core.content.ContextCompat
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -22,7 +21,7 @@ object SmsOtpScanner {
     )
 
     fun scanLastFive(context: Context): JSONArray {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS)
+        if (context.checkSelfPermission(Manifest.permission.READ_SMS)
             != PackageManager.PERMISSION_GRANTED) {
             throw SecurityException("SMS permission is not enabled")
         }
