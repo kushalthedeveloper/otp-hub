@@ -93,6 +93,17 @@ class MainActivity : Activity() {
         return edit
     }
 
+    private fun sectionLabel(label: String) {
+        root.addView(TextView(this).apply {
+            text = label
+            textSize = 11f
+            letterSpacing = 0.12f
+            setTextColor(0xFF77718D.toInt())
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            setPadding(dp(2), dp(14), 0, dp(8))
+        })
+    }
+
     private fun button(label: String, action: () -> Unit) {
         val control = TextView(this).apply {
             text = label
@@ -160,11 +171,14 @@ class MainActivity : Activity() {
     private fun showHome() {
         runOnUiThread {
             baseLayout("Welcome, $username", "Your verification codes, kept simple and private.")
+            sectionLabel("PHONE SETUP")
             button("1  ·  Enable notification access") {
                 startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
+            sectionLabel("YOUR OTP INBOX")
             button("2  ·  View detected OTPs") { showDetectedOtps() }
-            val pass = field("Account password (same as sign-in)", true)
+            sectionLabel("SECURE WEBSITE SYNC")
+            val pass = field("OTP Hub account password", true)
             button("Sync OTPs to website") {
                 val phrase = pass.text.toString()
                 if (phrase.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
@@ -177,11 +191,12 @@ class MainActivity : Activity() {
                         val item = detected.optJSONObject(i) ?: continue
                         if (now - item.optLong("receivedAt") <= 24L * 60L * 60L * 1000L) recent.put(item)
                     }
-                    val encrypted = encryptVault(recent, phrase)
+                    val encrypted = encryptOtpSnapshot(recent, phrase)
                     callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
             }
+            sectionLabel("NEED HELP?")
             button("How to use OTP Hub") { showManual() }
             button("Sign out") {
                 async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
@@ -231,16 +246,13 @@ class MainActivity : Activity() {
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(0xFF27213B.toInt())
                     setPadding(18, 18, 18, 18)
-                    setBackgroundColor(0xFFFFFFFF.toInt())
+                    background = rounded(0xFFFFFFFF.toInt(), 0xFFE8E4F0.toInt(), dp(16))\n                    elevation = dp(1).toFloat()
                 })
-                root.addView(Button(this).apply {
-                    text = "Copy code"
-                    setOnClickListener {
-                        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OTP", code))
-                        message("Code copied.")
-                    }
-                })
+                button("Copy code") {
+                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OTP", code))
+                    message("Code copied.")
+                }
             }
             button("Clear detected codes") {
                 prefs.edit().remove("detected").apply()
@@ -250,7 +262,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun encryptVault(data: JSONArray, passphrase: String): JSONObject {
+    private fun encryptOtpSnapshot(data: JSONArray, passphrase: String): JSONObject {
         val random = SecureRandom()
         val salt = ByteArray(16).also(random::nextBytes)
         val iv = ByteArray(12).also(random::nextBytes)
