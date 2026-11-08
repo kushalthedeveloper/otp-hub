@@ -27,6 +27,13 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private var token = ""
     private var username = ""
+    private var homeScreenActive = false
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh the inbox and access status after returning from Android settings.
+        if (homeScreenActive && token.isNotBlank()) showHome()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -136,6 +143,7 @@ class MainActivity : Activity() {
     }
 
     private fun showAuth() {
+        homeScreenActive = false
         runOnUiThread {
             baseLayout("Your OTP inbox", "One simple place to detect and securely sync your verification codes.")
             val user = field("Username")
@@ -183,6 +191,7 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
+        homeScreenActive = true
         runOnUiThread {
             baseLayout("Welcome, $username", "Your verification codes, kept simple and private.")
             sectionLabel("PHONE SETUP")
@@ -190,7 +199,7 @@ class MainActivity : Activity() {
                 startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
             root.addView(TextView(this).apply {
-                text = notificationListenerStatusText()
+                text = notificationListenerStatusText() + "\nSilent alerts are supported when the source app posts a notification. If it suppresses the notification completely, Android provides no content to read."
                 textSize = 12f
                 setTextColor(0xFF686477.toInt())
                 setPadding(dp(4), 0, dp(4), dp(10))
@@ -321,6 +330,7 @@ class MainActivity : Activity() {
     }
 
     private fun showManual() {
+        homeScreenActive = false
         runOnUiThread {
             baseLayout("Quick start guide", "Follow these three steps to see your phone’s detected OTPs on the website.")
             val sections = listOf(
@@ -338,6 +348,7 @@ class MainActivity : Activity() {
     }
 
     private fun showDetectedOtps() {
+        homeScreenActive = false
         runOnUiThread {
             val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
             val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
