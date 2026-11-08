@@ -173,13 +173,13 @@ export default function Home() {
         <section style={inboxCard}>
           <div style={sectionHead}><div><h2 style={subheading}>Incoming OTP inbox</h2><p style={muted}>Up to 10 recent codes · auto-filtered after 24 hours</p></div><span style={lock}>AES-256-GCM</span></div>
           {!unlocked ? <>
-            <p style={body}>Phone notifications are encrypted before upload. Enter your OTP Hub account password (the same password you use to sign in) to decrypt them in this browser.</p>
+            <p style={body}>Phone notifications are encrypted on your device before upload. Enter your OTP Hub account password (the same password you use to sign in) to decrypt them in this browser.</p>
             <label style={label}>OTP Hub account password</label>
             <input style={input} type="password" autoComplete="current-password" value={passphrase} onChange={(e) => setPassphrase(e.target.value)} placeholder="Your sign-in password (12+ characters)" />
             <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Unlocking…" : "Unlock encrypted inbox"}</button>
           </> : <>
             <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
-            {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access in the Android app, wait for a new verification notification, then tap Sync in the phone app. This inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
+            {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
               <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
           </>}
@@ -191,9 +191,9 @@ export default function Home() {
           <h2 style={subheading}>Connect your Android phone</h2>
           <ol style={steps}>
             <li>Open OTP Hub on your phone and sign in to the same account.</li>
-            <li>Choose <b>Enable OTP notification scanning</b>. Android's Notification Access is a broad permission: the listener can receive notification metadata from apps on your phone, so enable it only if you are comfortable with that access.</li>
-            <li>Return to the app, enter your OTP Hub account password, and tap <b>Sync OTPs to website</b>. The phone sends only the encrypted snapshot after you tap Sync.</li>
-            <li>Unlock this page with that same password. While the inbox remains unlocked and this tab is visible, it checks for new uploads every 2 seconds and updates automatically.</li>
+            <li>Choose <b>Enable notification access</b>. Android's Notification Access is a broad permission: the listener can receive notification metadata from apps on your phone, so enable it only if you are comfortable with that access.</li>
+            <li>Return to the app, enter your OTP Hub account password in the sync field, and turn on <b>Automatic encrypted sync</b>. New detected OTP candidates are encrypted and uploaded in the background. Manual Sync remains available as a fallback.</li>
+            <li>Unlock this page with that same password. While the inbox remains unlocked and this tab is visible, it checks for new uploads every 2 seconds and updates automatically. Android battery saver, connectivity, and background limits may delay phone uploads.</li>
           </ol>
           <p style={warning}>Privacy: only notification-derived numeric code candidates are supported. OTPs are sensitive account credentials. Keep this inbox private, do not share codes, and avoid syncing codes from accounts you do not control. Notification access can expose previews from selected apps, so enable it only if you understand that permission.</p>
         </section>
