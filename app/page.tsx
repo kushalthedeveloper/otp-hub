@@ -78,7 +78,9 @@ export default function Home() {
       if (passphrase.length < 12) throw new Error("Enter the same vault passphrase you use in the Android app (at least 12 characters).");
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
       if (!payload) { setItems([]); setUnlocked(true); setNotice("Inbox unlocked. No phone sync has been uploaded yet."); return; }
-      setItems(await decryptInbox(payload, passphrase));
+      const decrypted = await decryptInbox(payload, passphrase);
+      setItems(decrypted);
+      await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: await encryptInbox(decrypted, passphrase) });
       setUnlocked(true);
       setRevealed({});
       setNotice("Encrypted inbox unlocked on this device. The server stores only encrypted data.");
@@ -90,7 +92,9 @@ export default function Home() {
     setBusy(true); setError(""); setNotice("");
     try {
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
-      setItems(payload ? await decryptInbox(payload, passphrase) : []);
+      const decrypted = payload ? await decryptInbox(payload, passphrase) : [];
+      setItems(decrypted);
+      if (payload) await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: await encryptInbox(decrypted, passphrase) });
       setRevealed({});
       setNotice("Inbox refreshed from encrypted cloud storage.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh the inbox."); }
@@ -148,7 +152,7 @@ export default function Home() {
           <h2 style={subheading}>Connect your Android phone</h2>
           <ol style={steps}>
             <li>Open OTP Hub on your phone and sign in to the same account.</li>
-            <li>Choose <b>Enable OTP notification scanning</b> and allow notification access only for sources you trust.</li>
+            <li>Choose <b>Enable OTP notification scanning</b>. Android's Notification Access is a broad permission: the listener can receive notification metadata from apps on your phone, so enable it only if you are comfortable with that access.</li>
             <li>Return to the app, enter your vault passphrase, and tap <b>Sync detected OTPs to website</b>.</li>
             <li>Unlock this page with that same passphrase to view the encrypted inbox.</li>
           </ol>
