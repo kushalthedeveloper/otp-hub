@@ -191,7 +191,7 @@ class MainActivity : Activity() {
                         val item = detected.optJSONObject(i) ?: continue
                         if (now - item.optLong("receivedAt") <= 24L * 60L * 60L * 1000L) recent.put(item)
                     }
-                    val encrypted = encryptOtpSnapshot(recent, phrase)
+                    val encrypted = encryptNotificationSnapshot(recent, phrase)
                     callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
@@ -262,7 +262,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun encryptOtpSnapshot(data: JSONArray, passphrase: String): JSONObject {
+    private fun encryptNotificationSnapshot(data: JSONArray, passphrase: String): JSONObject {
         val random = SecureRandom()
         val salt = ByteArray(16).also(random::nextBytes)
         val iv = ByteArray(12).also(random::nextBytes)
