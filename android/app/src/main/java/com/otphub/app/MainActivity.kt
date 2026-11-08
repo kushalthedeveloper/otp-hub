@@ -196,12 +196,50 @@ class MainActivity : Activity() {
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
             }
+            val autoPrefs = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
+            val autoSwitch = Switch(this).apply {
+                text = "Automatic encrypted sync"
+                textSize = 15f
+                setTextColor(0xFF29213F.toInt())
+                isChecked = autoPrefs.getBoolean("enabled", false)
+                setPadding(0, dp(10), 0, dp(8))
+            }
+            autoSwitch.setOnCheckedChangeListener { _, enabled ->
+                if (enabled) {
+                    val phrase = pass.text.toString()
+                    if (phrase.length < 12) {
+                        autoSwitch.isChecked = false
+                        message("Enter your account password above before enabling automatic sync.")
+                    } else {
+                        try {
+                            autoPrefs.edit()
+                                .putBoolean("enabled", true)
+                                .putString("protected_passphrase", AutoSyncCrypto.protect(this, phrase))
+                                .apply()
+                            message("Automatic encrypted sync enabled. New detected OTP candidates will upload in the background when Android allows.")
+                        } catch (e: Exception) {
+                            autoSwitch.isChecked = false
+                            message("Could not securely enable auto sync: " + (e.message ?: "encryption error"))
+                        }
+                    }
+                } else {
+                    autoPrefs.edit().clear().apply()
+                    message("Automatic sync disabled. The saved encrypted passphrase was cleared.")
+                }
+            }
+            root.addView(autoSwitch, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4); bottomMargin = dp(4) })
+            root.addView(TextView(this).apply {
+                text = "Optional: when enabled, OTP candidates are encrypted on this phone and uploaded automatically after detection. Your password is protected with Android Keystore. Android battery/network restrictions can delay delivery."
+                textSize = 12f
+                setTextColor(0xFF686477.toInt())
+                setPadding(0, 0, 0, dp(12))
+            })
             sectionLabel("NEED HELP?")
             button("How to use OTP Hub") { showManual() }
             button("Sign out") {
                 async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
             }
-            root.addView(TextView(this).apply { text = "Your account password encrypts the OTP snapshot before it is uploaded. Sync is manual. The website uses the same password to unlock it."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
+            root.addView(TextView(this).apply { text = "Your account password encrypts the OTP snapshot before upload. Automatic sync is optional; the website uses the same password to unlock it."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
         }
     }
 
@@ -212,7 +250,7 @@ class MainActivity : Activity() {
             val sections = listOf(
                 "1. Sign in" to "Create an OTP Hub account in the app or on the website. Use the same username and account password on both. Keep your password private.",
                 "2. Enable notification access" to "Tap Enable notification access on the home screen. Android opens Notification Access settings. Find OTP Hub and enable it only if you are comfortable allowing it to read notification previews. Return to the app.",
-                "3. Detect and sync OTPs" to "When a new verification notification arrives, tap View detected OTPs. Enter your OTP Hub account password and tap Sync OTPs to website. Open the website, sign in to the same account, and unlock the inbox with the same password. Sync is manual; it does not happen automatically.",
+                "3. Detect and sync OTPs" to "Enable Automatic encrypted sync on the home screen after entering your account password. New OTP candidates are encrypted on this phone and uploaded in the background when Android allows. You can still use manual Sync if you prefer. Open the website, sign in to the same account, and unlock the inbox with the same password.",
                 "Important privacy notes" to "Notification Access is a broad Android permission. OTP Hub keeps numeric code candidates rather than full notification text. Do not share OTPs or your account password. You can disable Notification Access any time in Android Settings. This is an early testing build, not a security-audited product."
             )
             for ((heading, body) in sections) {
