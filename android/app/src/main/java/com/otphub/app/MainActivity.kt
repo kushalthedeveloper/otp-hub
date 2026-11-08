@@ -246,7 +246,8 @@ class MainActivity : Activity() {
                     setTypeface(null, Typeface.BOLD)
                     setTextColor(0xFF27213B.toInt())
                     setPadding(18, 18, 18, 18)
-                    background = rounded(0xFFFFFFFF.toInt(), 0xFFE8E4F0.toInt(), dp(16))\n                    elevation = dp(1).toFloat()
+                    background = rounded(0xFFFFFFFF.toInt(), 0xFFE8E4F0.toInt(), dp(16))
+                    elevation = dp(1).toFloat()
                 })
                 button("Copy code") {
                     val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
