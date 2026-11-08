@@ -48,6 +48,8 @@ export default function Home() {
   const [unlocked, setUnlocked] = useState(false);
   const [revealed, setRevealed] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState(false);
+  const [remoteBusy, setRemoteBusy] = useState(false);
+  const [remoteCommandId, setRemoteCommandId] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const lastPayloadRef = useRef<string>("");
@@ -106,6 +108,65 @@ export default function Home() {
     return () => { stopped = true; window.clearInterval(timer); };
   }, [unlocked, token, passphrase]);
 
+
+  useEffect(() => {
+    if (!remoteCommandId || !token || passphrase.length < 12) return;
+    let stopped = false;
+    let inFlight = false;
+    const pollRemote = async () => {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await rpc<{status:string; encrypted_result?:Record<string,string>|null; error_code?:string|null}>(
+          "otp_hub_remote_command_status",
+          { p_token: token, p_command_id: remoteCommandId }
+        );
+        if (stopped) return;
+        if (result.status === "completed" && result.encrypted_result) {
+          const decrypted = await decryptInbox(result.encrypted_result, passphrase);
+          if (!stopped) {
+            setItems(decrypted.slice(0, 5));
+            setRevealed({});
+            setNotice("SMS scan completed. Showing up to five newest OTP matches.");
+            setError("");
+            setRemoteCommandId("");
+          }
+        } else if (result.status === "failed" || result.status === "expired") {
+          const reason = result.error_code === "sms_permission_required"
+            ? "SMS permission is no longer available. Re-enable it in the Android app."
+            : "The phone could not complete the SMS scan. Check that Remote SMS Scan is enabled.";
+          setError(reason);
+          setRemoteCommandId("");
+        }
+      } catch {
+        // Retry while the phone is offline or Android has deferred the scan.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void pollRemote();
+    const timer = window.setInterval(() => void pollRemote(), 4000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [remoteCommandId, token, passphrase]);
+
+  async function requestSmsScan() {
+    setRemoteBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await rpc<{command_id:string}>(
+        "otp_hub_remote_scan_request",
+        { p_token: token }
+      );
+      if (!response?.command_id) throw new Error("The phone did not accept the scan request.");
+      setRemoteCommandId(response.command_id);
+      setNotice("SMS scan requested. Keep this dashboard open; Android may defer background work.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not request an SMS scan. Make sure the phone is paired and online.");
+    } finally {
+      setRemoteBusy(false);
+    }
+  }
 
   async function unlockInbox() {
     setBusy(true); setError(""); setNotice("");
@@ -185,6 +246,12 @@ export default function Home() {
             <button style={textButton} onClick={() => router.replace("/account")}>Sign in again</button>
           </> : <>
             <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
+            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",margin:"8px 0 16px"}}>
+              <button style={primary} disabled={remoteBusy || Boolean(remoteCommandId)} onClick={requestSmsScan}>
+                {remoteBusy ? "Requesting scan…" : remoteCommandId ? "SMS scan requested…" : "Scan SMS on my phone"}
+              </button>
+              <span style={muted}>Requires the phone's opt-in SMS permission and Remote SMS Scan switch. Background delivery can be delayed by Android.</span>
+            </div>
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
               <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><strong style={{display:"block",color:"#d9d0ff",fontSize:13,marginBottom:5}}>{item.source || "Unknown service"}</strong><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
