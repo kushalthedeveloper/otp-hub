@@ -52,6 +52,7 @@ export default function Home() {
   const [remoteCommandId, setRemoteCommandId] = useState("");
   const [remoteStatus, setRemoteStatus] = useState("idle");
   const [remoteRequestedAt, setRemoteRequestedAt] = useState("");
+  const [remoteMatchCount, setRemoteMatchCount] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const lastPayloadRef = useRef<string>("");
@@ -116,9 +117,10 @@ export default function Home() {
     try {
       const saved = sessionStorage.getItem("otp-hub-remote-scan");
       if (saved) {
-        const record = JSON.parse(saved) as { commandId?: string; status?: string; requestedAt?: string };
+        const record = JSON.parse(saved) as { commandId?: string; status?: string; requestedAt?: string; matchCount?: number };
         if (record.status) setRemoteStatus(record.status);
         if (record.requestedAt) setRemoteRequestedAt(record.requestedAt);
+        if (typeof record.matchCount === "number") setRemoteMatchCount(record.matchCount);
         if (record.commandId && ["pending", "running"].includes(record.status || "")) setRemoteCommandId(record.commandId);
       }
     } catch { /* Ignore an invalid local status record. */ }
@@ -144,12 +146,16 @@ export default function Home() {
         if (result.status === "completed" && result.encrypted_result) {
           const decrypted = await decryptInbox(result.encrypted_result, passphrase);
           if (!stopped) {
-            setItems(decrypted.slice(0, 5));
+            const scanMatches = decrypted.slice(0, 5);
+            setItems(scanMatches);
+            setRemoteMatchCount(scanMatches.length);
             setRevealed({});
-            setNotice("SMS scan completed. Showing up to five newest OTP matches.");
+            setNotice(scanMatches.length === 0
+              ? "SMS scan completed. No OTP matches were found in the five newest SMS messages."
+              : `SMS scan completed. Found ${scanMatches.length} OTP ${scanMatches.length === 1 ? "match" : "matches"} in the five newest SMS messages.`);
             setError("");
             setRemoteStatus("completed");
-            sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ status: "completed", requestedAt }));
+            sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ status: "completed", requestedAt, matchCount: scanMatches.length }));
             setRemoteCommandId("");
           }
         } else if (result.status === "failed" || result.status === "expired") {
@@ -283,7 +289,7 @@ export default function Home() {
               <strong style={{display:"block",color:"#eee9ff",marginBottom:5}}>Latest SMS scan request</strong>
               <span style={scanStatusLabel}>{remoteStatus === "pending" ? "REQUESTED · WAITING FOR PHONE" : remoteStatus === "running" ? "SCANNING ON PHONE" : remoteStatus === "completed" ? "COMPLETED" : remoteStatus === "failed" ? "FAILED" : remoteStatus === "expired" ? "EXPIRED · NOT COMPLETED" : remoteStatus.toUpperCase()}</span>
               <p style={muted}>Requested: {remoteRequestedAt ? new Date(remoteRequestedAt).toLocaleString() : "Time unavailable"}</p>
-              <p style={muted}>{remoteStatus === "pending" ? "The website has queued the request. The phone has not confirmed that scanning has started." : remoteStatus === "running" ? "The phone has claimed the request and is processing the five newest SMS inbox entries." : remoteStatus === "completed" ? "The phone reported completion. Up to five OTP matches from the five newest messages were returned." : remoteStatus === "expired" ? "The phone did not complete this request before it expired." : remoteStatus === "failed" ? "The phone reported that it could not complete this scan. See the message above for the reason." : "Scan request status."}</p>
+              <p style={muted}>{remoteStatus === "pending" ? "Request received by the website and queued. Scanning has not started until the phone claims it." : remoteStatus === "running" ? "The phone has confirmed that scanning is in progress. Only the five newest SMS inbox entries are checked." : remoteStatus === "completed" ? `Phone confirmed scan completion. ${remoteMatchCount === null ? "The result was received." : `${remoteMatchCount} OTP ${remoteMatchCount === 1 ? "match" : "matches"} found.`} The scan never checks older messages.` : remoteStatus === "expired" ? "The request expired before the phone completed it." : remoteStatus === "failed" ? "The phone reported that it could not complete this scan. See the message above for the reason." : "The scan request status is being tracked."}</p>
             </div>}
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
               <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><strong style={{display:"block",color:"#d9d0ff",fontSize:13,marginBottom:5}}>{item.source || "Unknown service"}</strong><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
