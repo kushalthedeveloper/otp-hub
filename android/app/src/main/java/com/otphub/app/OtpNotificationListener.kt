@@ -45,7 +45,9 @@ class OtpNotificationListener : NotificationListenerService() {
         if (!KEYWORDS.containsMatchIn(content)) return
         val code = CODE.find(content)?.value ?: return
 
-        val source = try {
+        // Prefer the service brand when the notification explicitly names it.
+        // Otherwise use the notification-posting app's public display label.
+        val source = BRAND.find(content)?.value?.let(::canonicalBrand) ?: try {
             val appInfo = packageManager.getApplicationInfo(sbn.packageName, 0)
             packageManager.getApplicationLabel(appInfo).toString().take(48)
         } catch (_: Exception) {
@@ -87,5 +89,14 @@ class OtpNotificationListener : NotificationListenerService() {
     companion object {
         private val KEYWORDS = Regex("(?i)\\b(otp|one[- ]time|verification|verify|security code|login code|passcode)\\b")
         private val CODE = Regex("(?<!\\d)\\d{4,8}(?!\\d)")
+        private val BRAND = Regex("(?i)\\b(Rapido|Uber|Ola|Swiggy|Zomato|Amazon|Flipkart|Paytm|PhonePe|Google|Microsoft|Telegram|WhatsApp|IRCTC|Meesho|Ajio|Myntra)\\b")
+        private fun canonicalBrand(value: String): String = when (value.lowercase()) {
+            "rapido" -> "Rapido"; "uber" -> "Uber"; "ola" -> "Ola"; "swiggy" -> "Swiggy"
+            "zomato" -> "Zomato"; "amazon" -> "Amazon"; "flipkart" -> "Flipkart"
+            "paytm" -> "Paytm"; "phonepe" -> "PhonePe"; "google" -> "Google"
+            "microsoft" -> "Microsoft"; "telegram" -> "Telegram"; "whatsapp" -> "WhatsApp"
+            "irctc" -> "IRCTC"; "meesho" -> "Meesho"; "ajio" -> "AJIO"; "myntra" -> "Myntra"
+            else -> value.take(48)
+        }
     }
 }
