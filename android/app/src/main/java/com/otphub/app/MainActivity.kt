@@ -198,10 +198,15 @@ class MainActivity : Activity() {
             sectionLabel("YOUR OTP INBOX")
             addOtpInboxToHome()
             sectionLabel("SECURE WEBSITE SYNC")
-            val pass = field("OTP Hub account password", true)
+            val autoPrefs = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
+            val autoAlreadyEnabled = autoPrefs.getBoolean("enabled", false)
+            val pass = if (autoAlreadyEnabled) null else field("OTP Hub account password (needed once to enable auto-sync)", true)
+            if (autoAlreadyEnabled) {
+                root.addView(TextView(this).apply { text = "Automatic sync is enabled. Your encrypted sync key is stored on this phone; no password entry is needed for future uploads."; textSize = 12f; setTextColor(0xFF686477.toInt()); setPadding(0, 0, 0, dp(10)) })
+            }
             button("Sync OTPs to website") {
-                val phrase = pass.text.toString()
-                if (phrase.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
+                val phrase = try { pass?.text?.toString()?.takeIf { it.isNotBlank() } ?: AutoSyncCrypto.unprotect(this, autoPrefs.getString("protected_passphrase", "").orEmpty()) } catch (_: Exception) { "" }
+                if (phrase.length < 12) { message("Enter your account password once and enable Automatic encrypted sync."); return@button }
                 async {
                     val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
                     val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
@@ -216,7 +221,6 @@ class MainActivity : Activity() {
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
             }
-            val autoPrefs = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
             val autoSwitch = Switch(this).apply {
                 text = "Automatic encrypted sync"
                 textSize = 15f
@@ -226,7 +230,7 @@ class MainActivity : Activity() {
             }
             autoSwitch.setOnCheckedChangeListener { _, enabled ->
                 if (enabled) {
-                    val phrase = pass.text.toString()
+                    val phrase = pass?.text?.toString().orEmpty()
                     if (phrase.length < 12) {
                         autoSwitch.isChecked = false
                         message("Enter your account password above before enabling automatic sync.")
@@ -247,7 +251,8 @@ class MainActivity : Activity() {
                                 }
                                 val encrypted = AutoSyncCrypto.encryptSnapshot(recent, phrase)
                                 callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
-                                runOnUiThread { message("Automatic sync enabled. Existing detected OTPs uploaded; future detections will sync automatically when Android allows.") }
+                                androidx.work.WorkManager.getInstance(applicationContext).enqueueUniqueWork("otp-hub-otp-upload", androidx.work.ExistingWorkPolicy.REPLACE, androidx.work.OneTimeWorkRequestBuilder<OtpUploadWorker>().setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()).build())
+                                runOnUiThread { message("Automatic sync enabled. Your password is saved securely on this phone; future uploads will not ask for it again.") }
                             }
                         } catch (e: Exception) {
                             autoSwitch.isChecked = false
@@ -260,6 +265,9 @@ class MainActivity : Activity() {
                 }
             }
             root.addView(autoSwitch, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4); bottomMargin = dp(4) })
+            if (autoAlreadyEnabled) {
+                androidx.work.WorkManager.getInstance(applicationContext).enqueueUniqueWork("otp-hub-otp-upload", androidx.work.ExistingWorkPolicy.KEEP, androidx.work.OneTimeWorkRequestBuilder<OtpUploadWorker>().setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()).build())
+            }
             root.addView(TextView(this).apply {
                 text = "Optional: when enabled, OTP candidates are encrypted on this phone and uploaded automatically after detection. Your password is protected with Android Keystore. Android battery/network restrictions can delay delivery."
                 textSize = 12f
