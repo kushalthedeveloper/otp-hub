@@ -9,8 +9,8 @@ export default function DownloadPage() {
         <section style={{ background: "#151a29", border: "1px solid #34304e", borderRadius: 18, padding: 26, marginTop: 28 }}>
           <h2 style={{ marginTop: 0 }}>Latest Android testing build · v1.0.31 · Build 38</h2>
           <p style={{ color: "#a8a8bb", lineHeight: 1.7 }}>This is a debug/testing APK, not a production-signed release. Android may display an installation warning.</p>
-          <a href="https://github.com/kushalthedeveloper/otp-hub/releases/latest/download/app-debug.apk" style={{ display: "inline-block", padding: "14px 22px", borderRadius: 10, background: "linear-gradient(135deg,#9476f0,#7053d2)", color: "white", fontWeight: 700, textDecoration: "none" }}>Download latest Android APK ↓</a>
-          <p style={{ fontSize: 12, color: "#9398ad", marginBottom: 0 }}>If GitHub shows a 504 timeout, wait briefly and retry. The error is a server/network timeout, not an Android installation error.</p>
+          <a href="https://github.com/kushalthedeveloper/otp-hub/releases/download/android-build-38/app-debug.apk" style={{ display: "inline-block", padding: "14px 22px", borderRadius: 10, background: "linear-gradient(135deg,#9476f0,#7053d2)", color: "white", fontWeight: 700, textDecoration: "none" }}>Download OTP Hub APK · Build 38 ↓</a>
+          <p style={{ fontSize: 12, color: "#9398ad", marginBottom: 0 }}>This link targets the published Build 38 APK asset directly; it does not use GitHub's latest-release redirect.</p>
           <p style={{ fontSize: 12, color: "#9398ad" }}>Requires Android 8.0 or newer. Official release: <a href="https://github.com/kushalthedeveloper/otp-hub/releases/tag/android-build-38" style={{ color: "#b6a3ff" }}>Build 38 notes</a>.</p>
         </section>
         <section style={{ marginTop: 28, lineHeight: 1.8, color: "#b8bac9" }}>
