@@ -71,32 +71,37 @@ class MainActivity : Activity() {
     private fun baseLayout(title: String, subtitle: String) {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(28, 36, 28, 24)
+            setPadding(dp(22), dp(28), dp(22), dp(24))
             setBackgroundColor(0xFFF6F5FA.toInt())
         }
-        val scroll = ScrollView(this).apply { addView(root) }
+        val scroll = ScrollView(this).apply { clipToPadding = false; setPadding(0, 0, 0, dp(12)); addView(root) }
         setContentView(scroll)
         root.addView(TextView(this).apply { text = "◈  OTP HUB"; textSize = 16f; setTextColor(0xFF6547C8.toInt()); setTypeface(null, Typeface.BOLD) })
-        root.addView(TextView(this).apply { text = title; textSize = 30f; setTextColor(0xFF171522.toInt()); setTypeface(null, Typeface.BOLD); setPadding(0, 34, 0, 8) })
-        root.addView(TextView(this).apply { text = subtitle; textSize = 14f; setTextColor(0xFF666477.toInt()); setPadding(0, 0, 0, 24) })
+        root.addView(TextView(this).apply { text = title; textSize = 27f; setTextColor(0xFF171522.toInt()); setTypeface(null, Typeface.BOLD); setPadding(0, dp(28), 0, dp(10)) })
+        root.addView(TextView(this).apply { text = subtitle; textSize = 15f; setTextColor(0xFF555266.toInt()); setPadding(0, 0, 0, dp(22)) })
     }
 
     private fun field(hint: String, password: Boolean = false): EditText {
         val edit = EditText(this).apply {
             this.hint = hint
             textSize = 16f
+            setTextColor(0xFF201D2B.toInt())
+            setHintTextColor(0xFF777487.toInt())
             setSingleLine(true)
-            setPadding(18, 12, 18, 12)
+            minHeight = dp(62)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
             setBackgroundColor(0xFFFFFFFF.toInt())
             if (password) inputType = 129
         }
-        root.addView(edit, LinearLayout.LayoutParams(-1, 58).apply { bottomMargin = 12 })
+        root.addView(edit, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(14) })
         return edit
     }
 
     private fun button(label: String, action: () -> Unit) {
-        root.addView(Button(this).apply { text = label; setOnClickListener { action() } }, LinearLayout.LayoutParams(-1, 54).apply { bottomMargin = 10 })
+        root.addView(Button(this).apply { text = label; textSize = 15f; isAllCaps = false; minHeight = dp(58); setPadding(dp(14), dp(12), dp(14), dp(12)); setOnClickListener { action() } }, LinearLayout.LayoutParams(-1, dp(62)).apply { bottomMargin = dp(12); topMargin = dp(2) })
     }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun message(value: String) {
         root.addView(TextView(this).apply { text = value; textSize = 14f; setTextColor(0xFFB3261E.toInt()); setPadding(0, 12, 0, 12) })
@@ -142,10 +147,10 @@ class MainActivity : Activity() {
                 startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
             button("View detected OTPs") { showDetectedOtps() }
-            val pass = field("Vault passphrase (12+ characters)", true)
+            val pass = field("Account password (same as sign-in)", true)
             button("Sync detected OTPs to website") {
                 val phrase = pass.text.toString()
-                if (phrase.length < 12) { message("Enter your vault passphrase (12+ characters) first."); return@button }
+                if (phrase.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
                 async {
                     val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
                     val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
@@ -160,8 +165,8 @@ class MainActivity : Activity() {
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
             }
-            button("Unlock and sync encrypted vault") {
-                if (pass.text.length < 12) { message("Use at least 12 characters for your vault passphrase."); return@button }
+            button("Open authenticator vault") {
+                if (pass.text.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
                 vaultPass = pass.text.toString()
                 async {
                     val remoteResponse = callRpc("otp_hub_vault_get", JSONObject().put("p_token", token))
@@ -173,10 +178,31 @@ class MainActivity : Activity() {
                     runOnUiThread { showVault() }
                 }
             }
+            button("How to use OTP Hub") { showManual() }
             button("Sign out") {
                 async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
             }
-            root.addView(TextView(this).apply { text = "Your TOTP secrets are encrypted before cloud backup. The account server stores only the encrypted vault."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
+            root.addView(TextView(this).apply { text = "Use your OTP Hub account password as the encryption password too. Enter it here when syncing or opening your vault. The server stores encrypted vault data only."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
+        }
+    }
+
+
+    private fun showManual() {
+        runOnUiThread {
+            baseLayout("OTP Hub guide", "A quick guide to the two different kinds of verification codes.")
+            val sections = listOf(
+                "1. Sign in" to "Create an OTP Hub account on the website or in this app. Use the same username and account password on both. Your account password is also used locally to encrypt your authenticator vault and synced notification inbox. You will enter that same password when opening or syncing encrypted data. Do not share it.",
+                "2. Receive OTP notifications" to "Tap Enable OTP notification scanning. Android opens Notification Access settings. Find OTP Hub and enable access only if you are comfortable allowing it to inspect notification previews. Return to OTP Hub, wait for a new verification notification that visibly contains a code, then tap View detected OTPs.",
+                "3. Sync to the website" to "On the home screen, enter your OTP Hub account password in the password box and tap Sync detected OTPs to website. Open the OTP Hub website, sign in to the same account, and enter the same account password to unlock the incoming OTP inbox. Sync is manual; it is not automatic.",
+                "4. What is Authenticator?" to "The authenticator creates time-based 6-digit codes for services where you intentionally enable an authenticator app (TOTP) and scan their setup QR or enter their setup key. It is different from SMS or notification OTP detection. It can help when a service offers 'Authenticator app' as a two-step verification method.",
+                "5. Add an authenticator account" to "Open the authenticator vault, choose Scan authenticator setup QR or enter the service name, account label and Base32 setup key, then tap Add authenticator account. Only scan a setup QR generated inside the security settings of an account you own. Keep setup keys private.",
+                "6. Important safety notes" to "OTP codes and setup keys can grant access to accounts. Do not share them. Notification Access is a broad Android permission. OTP Hub only keeps numeric candidates from matching notification previews, but other apps' previews may be visible to the listener. You can turn off Notification Access in Android Settings. This is an early testing build, not a security-audited product."
+            )
+            for ((heading, body) in sections) {
+                root.addView(TextView(this).apply { text = heading; textSize = 17f; setTypeface(null, Typeface.BOLD); setTextColor(0xFF29213F.toInt()); setPadding(0, dp(16), 0, dp(6)) })
+                root.addView(TextView(this).apply { text = body; textSize = 14f; setTextColor(0xFF555266.toInt()); setLineSpacing(dp(3).toFloat(), 1.08f); setPadding(0, 0, 0, dp(10)) })
+            }
+            button("Back to OTP Hub") { showHome() }
         }
     }
 
@@ -224,23 +250,23 @@ class MainActivity : Activity() {
 
     private fun showVault() {
         runOnUiThread {
-            baseLayout("Authenticator vault", "Signed in as @$username · encrypted account backup")
-            if (entries.length() == 0) root.addView(TextView(this).apply { text = "No authenticator accounts yet. Add a service setup key below."; textSize = 14f; setTextColor(0xFF656174.toInt()); setPadding(0, 12, 0, 18) })
+            baseLayout("Authenticator codes", "Signed in as @$username · encrypted account backup")
+            if (entries.length() == 0) root.addView(TextView(this).apply { text = "No authenticator accounts yet. Add a setup key for a service that supports authenticator apps."; textSize = 14f; setTextColor(0xFF656174.toInt()); setPadding(0, 12, 0, 18) })
             for (i in 0 until entries.length()) {
                 val item = entries.getJSONObject(i)
                 root.addView(TextView(this).apply { text = item.optString("issuer") + "  •  " + item.optString("account") + "\n" + totp(item.optString("secret")); textSize = 20f; setTextColor(0xFF27213B.toInt()); setPadding(16, 18, 16, 18); setBackgroundColor(0xFFFFFFFF.toInt()) })
             }
-            button("Scan QR code from another phone") {
+            button("Scan authenticator setup QR") {
                 IntentIntegrator(this@MainActivity).apply {
                     setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                    setPrompt("Scan the authenticator setup QR on the other phone")
+                    setPrompt("Scan a service’s authenticator setup QR code")
                     setBeepEnabled(false)
                     setOrientationLocked(false)
                 }.initiateScan()
             }
-            val issuer = field("Service name")
-            val account = field("Account label")
-            val secret = field("Base32 setup key")
+            val issuer = field("Service or website name")
+            val account = field("Account label (email or username)")
+            val secret = field("Setup key (Base32)")
             button("Add authenticator account") {
                 try {
                     val normalized = secret.text.toString().replace(" ", "").uppercase()
