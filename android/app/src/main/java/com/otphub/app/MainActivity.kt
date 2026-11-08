@@ -1,6 +1,8 @@
 package com.otphub.app
 
 import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -18,6 +20,16 @@ import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import android.util.Base64
 import java.security.SecureRandom
+import java.util.UUID
+import java.util.concurrent.TimeUnit
+import androidx.core.content.ContextCompat
+import androidx.work.Constraints
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 
 class MainActivity : Activity() {
     private val endpoint = "https://xllstbnkvtustctpkbap.supabase.co"
@@ -69,6 +81,55 @@ class MainActivity : Activity() {
         username = result.optString("username")
         if (username.isBlank()) { token = ""; prefs.edit().clear().apply(); runOnUiThread { showAuth() } }
         else runOnUiThread { showHome() }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_REMOTE_SMS_PERMISSION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                setRemoteSmsScanEnabled(true)
+            } else {
+                getSharedPreferences("otp_hub_remote", MODE_PRIVATE).edit().putBoolean("enabled", false).apply()
+                message("SMS permission was not granted. Remote SMS scanning remains off.")
+                showHome()
+            }
+        }
+    }
+
+    private fun setRemoteSmsScanEnabled(enabled: Boolean) {
+        async {
+            val remotePrefs = getSharedPreferences("otp_hub_remote", MODE_PRIVATE)
+            val deviceId = remotePrefs.getString("device_id", null) ?: UUID.randomUUID().toString()
+            if (enabled) {
+                val protected = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
+                    .getString("protected_passphrase", "").orEmpty()
+                if (protected.isBlank()) throw IllegalStateException("Enable Automatic encrypted sync first. It protects scan results before upload.")
+                callRpc("otp_hub_device_register", JSONObject()
+                    .put("p_token", token).put("p_device_id", deviceId).put("p_device_label", android.os.Build.MODEL))
+                callRpc("otp_hub_device_set_remote_scan", JSONObject()
+                    .put("p_token", token).put("p_device_id", deviceId).put("p_enabled", true))
+                remotePrefs.edit().putString("device_id", deviceId).putBoolean("enabled", true).apply()
+                val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                val periodic = PeriodicWorkRequestBuilder<RemoteCommandWorker>(15, TimeUnit.MINUTES)
+                    .setConstraints(constraints).build()
+                WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+                    "otp-hub-remote-commands", ExistingPeriodicWorkPolicy.UPDATE, periodic)
+                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                    "otp-hub-remote-commands-now", ExistingWorkPolicy.REPLACE,
+                    OneTimeWorkRequestBuilder<RemoteCommandWorker>().setConstraints(constraints).build())
+            } else {
+                if (deviceId.isNotBlank()) {
+                    callRpc("otp_hub_device_set_remote_scan", JSONObject()
+                        .put("p_token", token).put("p_device_id", deviceId).put("p_enabled", false))
+                }
+                remotePrefs.edit().putBoolean("enabled", false).apply()
+                WorkManager.getInstance(applicationContext).cancelUniqueWork("otp-hub-remote-commands-now")
+                WorkManager.getInstance(applicationContext).cancelUniqueWork("otp-hub-remote-commands")
+                WorkManager.getInstance(applicationContext).cancelUniqueWork("otp-hub-remote-commands-periodic")
+                WorkManager.getInstance(applicationContext).cancelUniquePeriodicWork("otp-hub-remote-commands")
+            }
+            runOnUiThread { showHome() }
+        }
     }
 
     private fun baseLayout(title: String, subtitle: String) {
@@ -176,6 +237,8 @@ class MainActivity : Activity() {
         prefs.edit().putString("token", token).putString("username", username).apply()
     }
 
+    private fun autoPrefsForRemote() = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
+
     private fun notificationListenerStatusText(): String {
         val enabled = android.provider.Settings.Secure.getString(
             contentResolver, "enabled_notification_listeners"
@@ -203,6 +266,38 @@ class MainActivity : Activity() {
                 textSize = 12f
                 setTextColor(0xFF686477.toInt())
                 setPadding(dp(4), 0, dp(4), dp(10))
+            })
+            sectionLabel("REMOTE ACCESS")
+            val remotePrefs = getSharedPreferences("otp_hub_remote", MODE_PRIVATE)
+            val remoteSwitch = Switch(this).apply {
+                text = "Allow remote SMS scans from website"
+                textSize = 14f
+                setTextColor(0xFF29213F.toInt())
+                isChecked = remotePrefs.getBoolean("enabled", false)
+                setPadding(0, dp(8), 0, dp(8))
+            }
+            remoteSwitch.setOnCheckedChangeListener { _, enabled ->
+                if (enabled) {
+                    val protected = autoPrefsForRemote().getString("protected_passphrase", "").orEmpty()
+                    if (protected.isBlank()) {
+                        remoteSwitch.isChecked = false
+                        message("First enable Automatic encrypted sync below. It encrypts SMS scan results before upload.")
+                    } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+                        remoteSwitch.isChecked = false
+                        requestPermissions(arrayOf(Manifest.permission.READ_SMS), REQUEST_REMOTE_SMS_PERMISSION)
+                    } else {
+                        setRemoteSmsScanEnabled(true)
+                    }
+                } else if (remotePrefs.getBoolean("enabled", false)) {
+                    setRemoteSmsScanEnabled(false)
+                }
+            }
+            root.addView(remoteSwitch, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
+            root.addView(TextView(this).apply {
+                text = "When enabled, the website can request a scan of up to the latest 500 SMS inbox entries. Only the five newest OTP matches are encrypted and returned. The phone checks queued requests periodically; Android may delay background work."
+                textSize = 12f
+                setTextColor(0xFF686477.toInt())
+                setPadding(dp(4), 0, dp(4), dp(12))
             })
             sectionLabel("YOUR OTP INBOX")
             addOtpInboxToHome()
@@ -386,6 +481,10 @@ class MainActivity : Activity() {
             }
             button("Back") { showHome() }
         }
+    }
+
+    companion object {
+        private const val REQUEST_REMOTE_SMS_PERMISSION = 4107
     }
 
     private fun encryptNotificationSnapshot(data: JSONArray, passphrase: String): JSONObject {
