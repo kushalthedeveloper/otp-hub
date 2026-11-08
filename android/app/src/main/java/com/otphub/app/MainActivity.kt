@@ -176,7 +176,7 @@ class MainActivity : Activity() {
                 startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
             sectionLabel("YOUR OTP INBOX")
-            button("2  ·  View detected OTPs") { showDetectedOtps() }
+            addOtpInboxToHome()
             sectionLabel("SECURE WEBSITE SYNC")
             val pass = field("OTP Hub account password", true)
             button("Sync OTPs to website") {
@@ -255,6 +255,42 @@ class MainActivity : Activity() {
         }
     }
 
+
+
+    private fun addOtpInboxToHome() {
+        val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+        val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
+        val now = System.currentTimeMillis()
+        var shown = 0
+        for (i in 0 until detected.length()) {
+            val item = detected.optJSONObject(i) ?: continue
+            if (now - item.optLong("receivedAt") > 24L * 60L * 60L * 1000L) continue
+            val source = item.optString("source", "Unknown app")
+            val code = item.optString("code")
+            val time = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.optLong("receivedAt")))
+            root.addView(TextView(this).apply {
+                text = "$source\\n$code\\n$time"
+                textSize = 17f
+                setTextColor(0xFF29213F.toInt())
+                setPadding(dp(16), dp(14), dp(16), dp(14))
+                background = rounded(0xFFFFFFFF.toInt(), 0xFFE5E1EF.toInt(), dp(14))
+            }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(9) })
+            shown++
+        }
+        if (shown == 0) {
+            root.addView(TextView(this).apply {
+                text = "No OTP notifications detected yet. Keep notification access enabled and wait for a new verification notification."
+                textSize = 14f
+                setTextColor(0xFF686477.toInt())
+                setPadding(0, dp(8), 0, dp(12))
+            })
+        } else {
+            button("Clear phone inbox") {
+                prefs.edit().remove("detected").apply()
+                showHome()
+            }
+        }
+    }
 
     private fun showManual() {
         runOnUiThread {
