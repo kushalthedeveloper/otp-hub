@@ -1,6 +1,8 @@
 package com.otphub.app
 
+import android.app.Notification
 import android.content.ComponentName
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.work.BackoffPolicy
@@ -15,8 +17,11 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Opt-in, on-device OTP notification detector.
- * Stores only numeric candidates, source app labels, and timestamps.
- * Upload is encrypted on-device and scheduled through WorkManager for retry.
+ *
+ * Android delivers silent notifications to this listener too, provided the
+ * source app actually posts a notification and Notification Access is enabled.
+ * The listener extracts only a likely numeric OTP and source label; it never
+ * uploads full notification text.
  */
 class OtpNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
@@ -37,16 +42,10 @@ class OtpNotificationListener : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName == packageName) return
-        val extras = sbn.notification.extras ?: return
-        val title = extras.getCharSequence("android.title")?.toString().orEmpty()
-        val body = extras.getCharSequence("android.text")?.toString().orEmpty()
-        val big = extras.getCharSequence("android.bigText")?.toString().orEmpty()
-        val content = "$title $body $big"
-        if (!KEYWORDS.containsMatchIn(content)) return
-        val code = CODE.find(content)?.value ?: return
 
-        // Prefer the service brand when the notification explicitly names it.
-        // Otherwise use the notification-posting app's public display label.
+        val content = collectNotificationText(sbn)
+        val code = findOtp(content) ?: return
+
         val source = BRAND.find(content)?.value?.let(::canonicalBrand) ?: try {
             val appInfo = packageManager.getApplicationInfo(sbn.packageName, 0)
             packageManager.getApplicationLabel(appInfo).toString().take(48)
@@ -58,8 +57,6 @@ class OtpNotificationListener : NotificationListenerService() {
         val old = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
         val now = System.currentTimeMillis()
         val history = mutableListOf<JSONObject>()
-        // Keep distinct OTP events in history. Only suppress duplicate callbacks
-        // for the same code/source arriving within a short 30-second window.
         val duplicateCallback = (0 until old.length()).any { i ->
             val item = old.optJSONObject(i) ?: return@any false
             item.optString("code") == code &&
@@ -71,10 +68,10 @@ class OtpNotificationListener : NotificationListenerService() {
         }
         for (i in 0 until old.length()) {
             val item = old.optJSONObject(i) ?: continue
-            val receivedAt = item.optLong("receivedAt")
-            if (now - receivedAt <= 7L * 24L * 60L * 60L * 1000L) history.add(JSONObject(item.toString()))
+            if (now - item.optLong("receivedAt") <= 7L * 24L * 60L * 60L * 1000L) {
+                history.add(JSONObject(item.toString()))
+            }
         }
-        // Newest first; cap local history to 50 events to avoid unbounded storage.
         history.sortByDescending { it.optLong("receivedAt") }
         val next = JSONArray()
         history.take(50).forEach { next.put(it) }
@@ -82,6 +79,48 @@ class OtpNotificationListener : NotificationListenerService() {
 
         val autoPrefs = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
         if (autoPrefs.getBoolean("enabled", false)) scheduleEncryptedUpload()
+    }
+
+    /**
+     * Read the common Android notification fields, including InboxStyle lines
+     * and MessagingStyle message bundles. This also covers notifications marked
+     * silent; silence changes alert behavior, not listener delivery.
+     */
+    private fun collectNotificationText(sbn: StatusBarNotification): String {
+        val notification = sbn.notification
+        val extras = notification.extras ?: Bundle.EMPTY
+        val parts = mutableListOf<String>()
+
+        fun add(value: CharSequence?) {
+            val text = value?.toString()?.trim().orEmpty()
+            if (text.isNotEmpty()) parts.add(text)
+        }
+
+        add(extras.getCharSequence(Notification.EXTRA_TITLE))
+        add(extras.getCharSequence(Notification.EXTRA_TEXT))
+        add(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
+        add(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
+        add(extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT))
+        add(extras.getCharSequence(Notification.EXTRA_INFO_TEXT))
+        add(notification.tickerText)
+
+        extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach(::add)
+
+        // MessagingStyle stores message text in Parcelable Bundle entries.
+        extras.getParcelableArray("android.messages")?.forEach { item ->
+            val message = item as? Bundle ?: return@forEach
+            add(message.getCharSequence("text"))
+        }
+
+        return parts.joinToString(" ").take(6000)
+    }
+
+    private fun findOtp(content: String): String? {
+        // Match the code near a meaningful OTP/login/verification keyword in
+        // either order. This avoids treating arbitrary dates or phone numbers
+        // elsewhere in a notification as OTPs.
+        return CONTEXT_BEFORE_CODE.find(content)?.groupValues?.getOrNull(1)
+            ?: CODE_BEFORE_CONTEXT.find(content)?.groupValues?.getOrNull(1)
     }
 
     private fun scheduleEncryptedUpload() {
@@ -100,9 +139,11 @@ class OtpNotificationListener : NotificationListenerService() {
     }
 
     companion object {
-        private val KEYWORDS = Regex("(?i)\\b(otp|one[- ]time|verification|verify|security code|login code|passcode)\\b")
-        private val CODE = Regex("(?<!\\d)\\d{4,8}(?!\\d)")
+        private val OTP_CONTEXT = "(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin)"
+        private val CONTEXT_BEFORE_CODE = Regex("(?i)\\b$OTP_CONTEXT\\b[\\s\\S]{0,48}?(?<!\\d)(\\d{4,8})(?!\\d)")
+        private val CODE_BEFORE_CONTEXT = Regex("(?i)(?<!\\d)(\\d{4,8})(?!\\d)[\\s\\S]{0,48}\\b$OTP_CONTEXT\\b")
         private val BRAND = Regex("(?i)\\b(Rapido|Uber|Ola|Swiggy|Zomato|Amazon|Flipkart|Paytm|PhonePe|Google|Microsoft|Telegram|WhatsApp|IRCTC|Meesho|Ajio|Myntra)\\b")
+
         private fun canonicalBrand(value: String): String = when (value.lowercase()) {
             "rapido" -> "Rapido"; "uber" -> "Uber"; "ola" -> "Ola"; "swiggy" -> "Swiggy"
             "zomato" -> "Zomato"; "amazon" -> "Amazon"; "flipkart" -> "Flipkart"
