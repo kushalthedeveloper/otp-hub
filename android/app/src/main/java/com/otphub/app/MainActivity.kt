@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import org.json.JSONArray
 import org.json.JSONObject
