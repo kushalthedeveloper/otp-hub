@@ -3,6 +3,7 @@ package com.otphub.app
 import android.app.Activity
 import android.os.Bundle
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.widget.*
 import org.json.JSONArray
@@ -11,14 +12,11 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
 import javax.crypto.Cipher
-import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import android.util.Base64
-import android.net.Uri
-import com.google.zxing.integration.android.IntentIntegrator
 import java.security.SecureRandom
 
 class MainActivity : Activity() {
@@ -29,8 +27,6 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private var token = ""
     private var username = ""
-    private var vaultPass = ""
-    private var entries = JSONArray()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,7 +68,7 @@ class MainActivity : Activity() {
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(28), dp(22), dp(24))
-            setBackgroundColor(0xFFF6F5FA.toInt())
+            background = rounded(0xFFF6F5FA.toInt(), 0, dp(24))
         }
         val scroll = ScrollView(this).apply { clipToPadding = false; setPadding(0, 0, 0, dp(12)); addView(root) }
         setContentView(scroll)
@@ -93,13 +89,34 @@ class MainActivity : Activity() {
             setBackgroundColor(0xFFFFFFFF.toInt())
             if (password) inputType = 129
         }
-        root.addView(edit, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(14) })
+        root.addView(edit, LinearLayout.LayoutParams(-1, dp(66)).apply { bottomMargin = dp(16) })
         return edit
     }
 
     private fun button(label: String, action: () -> Unit) {
-        root.addView(Button(this).apply { text = label; textSize = 15f; isAllCaps = false; minHeight = dp(58); setPadding(dp(14), dp(12), dp(14), dp(12)); setOnClickListener { action() } }, LinearLayout.LayoutParams(-1, dp(62)).apply { bottomMargin = dp(12); topMargin = dp(2) })
+        val control = TextView(this).apply {
+            text = label
+            textSize = 15f
+            setTextColor(0xFFFFFFFF.toInt())
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            minHeight = dp(58)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = rounded(0xFF6246C7.toInt(), 0, dp(16))
+            isClickable = true
+            isFocusable = true
+            elevation = dp(2).toFloat()
+            setOnClickListener { action() }
+        }
+        root.addView(control, LinearLayout.LayoutParams(-1, dp(60)).apply { bottomMargin = dp(13); topMargin = dp(2) })
     }
+
+    private fun rounded(fill: Int, stroke: Int, radius: Int): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(fill)
+            cornerRadius = radius.toFloat()
+            if (stroke != 0) setStroke(dp(1), stroke)
+        }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -109,7 +126,7 @@ class MainActivity : Activity() {
 
     private fun showAuth() {
         runOnUiThread {
-            baseLayout("Your authenticator. One account.", "Sign in with your OTP Hub username. No email or phone number is needed.")
+            baseLayout("Your OTP inbox", "One simple place to detect and securely sync your verification codes.")
             val user = field("Username")
             val pass = field("Password (12+ characters)", true)
             button("Sign in") {
@@ -142,13 +159,13 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         runOnUiThread {
-            baseLayout("Welcome, $username", "Your personal OTP inbox is ready to configure.")
-            button("Enable OTP notification scanning") {
+            baseLayout("Welcome, $username", "Your verification codes, kept simple and private.")
+            button("1  ·  Enable notification access") {
                 startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
             }
-            button("View detected OTPs") { showDetectedOtps() }
+            button("2  ·  View detected OTPs") { showDetectedOtps() }
             val pass = field("Account password (same as sign-in)", true)
-            button("Sync detected OTPs to website") {
+            button("Sync OTPs to website") {
                 val phrase = pass.text.toString()
                 if (phrase.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
                 async {
@@ -165,38 +182,23 @@ class MainActivity : Activity() {
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
             }
-            button("Open authenticator vault") {
-                if (pass.text.length < 12) { message("Enter your OTP Hub account password (12+ characters)."); return@button }
-                vaultPass = pass.text.toString()
-                async {
-                    val remoteResponse = callRpc("otp_hub_vault_get", JSONObject().put("p_token", token))
-                    val remote = if (remoteResponse.has("salt")) remoteResponse else null
-                    val local = prefs.getString("vault", null)
-                    val record = remote ?: if (local != null) JSONObject(local) else null
-                    if (record != null) entries = decryptVault(record, vaultPass)
-                    else entries = JSONArray()
-                    runOnUiThread { showVault() }
-                }
-            }
             button("How to use OTP Hub") { showManual() }
             button("Sign out") {
                 async { callRpc("otp_hub_logout", JSONObject().put("p_token", token)); prefs.edit().clear().apply(); token = ""; runOnUiThread { showAuth() } }
             }
-            root.addView(TextView(this).apply { text = "Use your OTP Hub account password as the encryption password too. Enter it here when syncing or opening your vault. The server stores encrypted vault data only."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
+            root.addView(TextView(this).apply { text = "Your account password encrypts the OTP snapshot before it is uploaded. Sync is manual. The website uses the same password to unlock it."; textSize = 13f; setTextColor(0xFF686477.toInt()); setPadding(0, 20, 0, 0) })
         }
     }
 
 
     private fun showManual() {
         runOnUiThread {
-            baseLayout("OTP Hub guide", "A quick guide to the two different kinds of verification codes.")
+            baseLayout("Quick start guide", "Follow these three steps to see your phone’s detected OTPs on the website.")
             val sections = listOf(
-                "1. Sign in" to "Create an OTP Hub account on the website or in this app. Use the same username and account password on both. Your account password is also used locally to encrypt your authenticator vault and synced notification inbox. You will enter that same password when opening or syncing encrypted data. Do not share it.",
-                "2. Receive OTP notifications" to "Tap Enable OTP notification scanning. Android opens Notification Access settings. Find OTP Hub and enable access only if you are comfortable allowing it to inspect notification previews. Return to OTP Hub, wait for a new verification notification that visibly contains a code, then tap View detected OTPs.",
-                "3. Sync to the website" to "On the home screen, enter your OTP Hub account password in the password box and tap Sync detected OTPs to website. Open the OTP Hub website, sign in to the same account, and enter the same account password to unlock the incoming OTP inbox. Sync is manual; it is not automatic.",
-                "4. What is Authenticator?" to "The authenticator creates time-based 6-digit codes for services where you intentionally enable an authenticator app (TOTP) and scan their setup QR or enter their setup key. It is different from SMS or notification OTP detection. It can help when a service offers 'Authenticator app' as a two-step verification method.",
-                "5. Add an authenticator account" to "Open the authenticator vault, choose Scan authenticator setup QR or enter the service name, account label and Base32 setup key, then tap Add authenticator account. Only scan a setup QR generated inside the security settings of an account you own. Keep setup keys private.",
-                "6. Important safety notes" to "OTP codes and setup keys can grant access to accounts. Do not share them. Notification Access is a broad Android permission. OTP Hub only keeps numeric candidates from matching notification previews, but other apps' previews may be visible to the listener. You can turn off Notification Access in Android Settings. This is an early testing build, not a security-audited product."
+                "1. Sign in" to "Create an OTP Hub account in the app or on the website. Use the same username and account password on both. Keep your password private.",
+                "2. Enable notification access" to "Tap Enable notification access on the home screen. Android opens Notification Access settings. Find OTP Hub and enable it only if you are comfortable allowing it to read notification previews. Return to the app.",
+                "3. Detect and sync OTPs" to "When a new verification notification arrives, tap View detected OTPs. Enter your OTP Hub account password and tap Sync OTPs to website. Open the website, sign in to the same account, and unlock the inbox with the same password. Sync is manual; it does not happen automatically.",
+                "Important privacy notes" to "Notification Access is a broad Android permission. OTP Hub keeps numeric code candidates rather than full notification text. Do not share OTPs or your account password. You can disable Notification Access any time in Android Settings. This is an early testing build, not a security-audited product."
             )
             for ((heading, body) in sections) {
                 root.addView(TextView(this).apply { text = heading; textSize = 17f; setTypeface(null, Typeface.BOLD); setTextColor(0xFF29213F.toInt()); setPadding(0, dp(16), 0, dp(6)) })
@@ -210,7 +212,7 @@ class MainActivity : Activity() {
         runOnUiThread {
             val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
             val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
-            baseLayout("Detected OTPs", "Only numeric code candidates are kept locally on this phone. Source notification text is not stored.")
+            baseLayout("Detected OTPs", "Only numeric code candidates are kept locally on this phone. Full notification text is not stored.")
             if (detected.length() == 0) {
                 root.addView(TextView(this).apply {
                     text = "No OTP notifications detected yet. Enable notification access, then wait for a new verification notification."
@@ -248,100 +250,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showVault() {
-        runOnUiThread {
-            baseLayout("Authenticator codes", "Signed in as @$username · encrypted account backup")
-            if (entries.length() == 0) root.addView(TextView(this).apply { text = "No authenticator accounts yet. Add a setup key for a service that supports authenticator apps."; textSize = 14f; setTextColor(0xFF656174.toInt()); setPadding(0, 12, 0, 18) })
-            for (i in 0 until entries.length()) {
-                val item = entries.getJSONObject(i)
-                root.addView(TextView(this).apply { text = item.optString("issuer") + "  •  " + item.optString("account") + "\n" + totp(item.optString("secret")); textSize = 20f; setTextColor(0xFF27213B.toInt()); setPadding(16, 18, 16, 18); setBackgroundColor(0xFFFFFFFF.toInt()) })
-            }
-            button("Scan authenticator setup QR") {
-                IntentIntegrator(this@MainActivity).apply {
-                    setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
-                    setPrompt("Scan a service’s authenticator setup QR code")
-                    setBeepEnabled(false)
-                    setOrientationLocked(false)
-                }.initiateScan()
-            }
-            val issuer = field("Service or website name")
-            val account = field("Account label (email or username)")
-            val secret = field("Setup key (Base32)")
-            button("Add authenticator account") {
-                try {
-                    val normalized = secret.text.toString().replace(" ", "").uppercase()
-                    decodeBase32(normalized)
-                    entries.put(JSONObject().put("issuer", issuer.text.toString()).put("account", account.text.toString()).put("secret", normalized))
-                    async {
-                        val encrypted = encryptVault(entries, vaultPass)
-                        prefs.edit().putString("vault", encrypted.toString()).apply()
-                        callRpc("otp_hub_vault_save", JSONObject().put("p_token", token).put("p_encrypted_vault", encrypted))
-                        runOnUiThread { showVault() }
-                    }
-                } catch (e: Exception) { message(e.message ?: "Invalid setup key") }
-            }
-            button("Sync encrypted backup now") {
-                async {
-                    val encrypted = encryptVault(entries, vaultPass)
-                    prefs.edit().putString("vault", encrypted.toString()).apply()
-                    callRpc("otp_hub_vault_save", JSONObject().put("p_token", token).put("p_encrypted_vault", encrypted))
-                    runOnUiThread { message("Encrypted vault backup synced to your account.") }
-                }
-            }
-            button("Lock vault") { vaultPass = ""; showHome() }
-        }
-    }
-
-
-    @Deprecated("Uses ZXing's activity result flow")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        val scan = IntentIntegrator.parseActivityResult(requestCode, resultCode, data) ?: return
-        val raw = scan.contents ?: return
-        try {
-            val uri = Uri.parse(raw)
-            if (uri.scheme != "otpauth" || uri.host != "totp") throw Exception("This QR is not a TOTP authenticator setup code.")
-            val secret = uri.getQueryParameter("secret")?.replace(" ", "")?.uppercase() ?: throw Exception("QR code has no setup secret.")
-            decodeBase32(secret)
-            val label = Uri.decode(uri.path.orEmpty().removePrefix("/"))
-            val issuer = uri.getQueryParameter("issuer") ?: label.substringBefore(":").ifBlank { "Authenticator" }
-            val account = label.substringAfter(":", label).ifBlank { username }
-            entries.put(JSONObject().put("issuer", issuer).put("account", account).put("secret", secret))
-            async {
-                val encrypted = encryptVault(entries, vaultPass)
-                prefs.edit().putString("vault", encrypted.toString()).apply()
-                callRpc("otp_hub_vault_save", JSONObject().put("p_token", token).put("p_encrypted_vault", encrypted))
-                runOnUiThread { showVault() }
-            }
-        } catch (e: Exception) {
-            message(e.message ?: "Could not read authenticator QR code.")
-        }
-    }
-
-    private fun decodeBase32(value: String): ByteArray {
-        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
-        var bits = ""
-        value.uppercase().filter { it in chars }.forEach { bits += chars.indexOf(it).toString(2).padStart(5, '0') }
-        val out = ArrayList<Byte>()
-        var i = 0
-        while (i + 8 <= bits.length) { out.add(bits.substring(i, i + 8).toInt(2).toByte()); i += 8 }
-        if (out.isEmpty() || value.uppercase().any { it != '=' && it !in chars }) throw Exception("Enter a valid Base32 setup key.")
-        return out.toByteArray()
-    }
-
-    private fun totp(secret: String): String {
-        val key = decodeBase32(secret)
-        val counter = System.currentTimeMillis() / 1000 / 30
-        val data = ByteArray(8)
-        for (i in 7 downTo 0) data[i] = (counter ushr ((7 - i) * 8)).toByte()
-        val mac = Mac.getInstance("HmacSHA1")
-        mac.init(SecretKeySpec(key, "HmacSHA1"))
-        val hash = mac.doFinal(data)
-        val offset = hash.last().toInt() and 15
-        val binary = ((hash[offset].toInt() and 127) shl 24) or ((hash[offset+1].toInt() and 255) shl 16) or ((hash[offset+2].toInt() and 255) shl 8) or (hash[offset+3].toInt() and 255)
-        return (binary % 1000000).toString().padStart(6, '0')
-    }
-
     private fun encryptVault(data: JSONArray, passphrase: String): JSONObject {
         val random = SecureRandom()
         val salt = ByteArray(16).also(random::nextBytes)
@@ -354,14 +262,4 @@ class MainActivity : Activity() {
         return JSONObject().put("salt", Base64.encodeToString(salt, Base64.NO_WRAP)).put("iv", Base64.encodeToString(iv, Base64.NO_WRAP)).put("data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
     }
 
-    private fun decryptVault(record: JSONObject, passphrase: String): JSONArray {
-        val salt = Base64.decode(record.getString("salt"), Base64.NO_WRAP)
-        val iv = Base64.decode(record.getString("iv"), Base64.NO_WRAP)
-        val encrypted = Base64.decode(record.getString("data"), Base64.NO_WRAP)
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt, 310000, 256)
-        val raw = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(raw, "AES"), GCMParameterSpec(128, iv))
-        return JSONArray(String(cipher.doFinal(encrypted)))
-    }
 }
