@@ -159,13 +159,20 @@ class MainActivity : Activity() {
     }
 
     private fun sectionLabel(label: String) {
+        val divider = View(this).apply {
+            setBackgroundColor(0xFFE5E1EF.toInt())
+        }
+        root.addView(divider, LinearLayout.LayoutParams(-1, dp(1)).apply {
+            topMargin = dp(18)
+            bottomMargin = dp(10)
+        })
         root.addView(TextView(this).apply {
             text = label
             textSize = 11f
             letterSpacing = 0.12f
             setTextColor(0xFF77718D.toInt())
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-            setPadding(dp(2), dp(14), 0, dp(8))
+            setPadding(dp(2), dp(3), 0, dp(8))
         })
     }
 
@@ -236,17 +243,20 @@ class MainActivity : Activity() {
 
     private fun autoPrefsForRemote() = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
 
-    private fun notificationListenerStatusText(): String {
-        val enabled = android.provider.Settings.Secure.getString(
+    private fun notificationAccessEnabled(): Boolean =
+        android.provider.Settings.Secure.getString(
             contentResolver, "enabled_notification_listeners"
-        ).orEmpty().contains(packageName)
+        ).orEmpty().split(':').any { android.content.ComponentName.unflattenFromString(it)?.packageName == packageName }
+
+    private fun notificationListenerStatusText(): String {
+        val enabled = notificationAccessEnabled()
         val state = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
         val connectedAt = state.getLong("listener_connected_at", 0L)
         val disconnectedAt = state.getLong("listener_disconnected_at", 0L)
         return when {
-            !enabled -> "Listener status: access is OFF. Android is not allowing OTP Hub to read notifications."
-            connectedAt > disconnectedAt && connectedAt > 0L -> "Listener status: Android connected. Background detection is enabled while Android keeps the listener bound."
-            else -> "Listener status: access is ON, waiting for Android to connect the notification listener. Reopen this screen in a moment."
+            !enabled -> "Notification access is off. Enable it to detect OTP notifications."
+            connectedAt > disconnectedAt && connectedAt > 0L -> "Connected · background notification detection is available while Android keeps the listener bound."
+            else -> "Access enabled · waiting for Android to connect the notification listener."
         }
     }
 
@@ -255,11 +265,22 @@ class MainActivity : Activity() {
         runOnUiThread {
             baseLayout("Welcome, $username", "Your verification codes, kept simple and private.")
             sectionLabel("PHONE SETUP")
-            button("1  ·  Enable notification access") {
-                startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            if (notificationAccessEnabled()) {
+                root.addView(TextView(this).apply {
+                    text = "✓  NOTIFICATION ACCESS ENABLED"
+                    textSize = 13f
+                    setTypeface(null, Typeface.BOLD)
+                    setTextColor(0xFF176B4A.toInt())
+                    setPadding(dp(14), dp(13), dp(14), dp(13))
+                    background = rounded(0xFFE8F5EE.toInt(), 0, dp(12))
+                }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) })
+            } else {
+                button("Enable notification access") {
+                    startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                }
             }
             root.addView(TextView(this).apply {
-                text = notificationListenerStatusText() + "\nSilent alerts are supported when the source app posts a notification. If it suppresses the notification completely, Android provides no content to read."
+                text = notificationListenerStatusText() + "\nOTP detection works only when the source app posts a notification that Android makes available."
                 textSize = 12f
                 setTextColor(0xFF686477.toInt())
                 setPadding(dp(4), 0, dp(4), dp(10))
