@@ -12,18 +12,19 @@ OTP Hub is a personal OTP notification inbox with username/password accounts and
 - Registration returns a one-time recovery code. Save it privately and offline. A successful recovery rotates the recovery code and displays the replacement.
 - Account sessions are validated by Supabase-backed RPC functions.
 
-## Incoming OTP notification inbox
+## Incoming OTP inbox and remote SMS scan
 
 - Android notification scanning is opt-in and requires the user to enable Android's Notification Access permission.
-- The listener checks notification title and preview text for OTP-related keywords and a 4–8 digit numeric candidate.
-- It stores only the candidate code and receive timestamp locally; it does not keep the original notification text or sender.
-- The Android app keeps at most 10 recent candidates and removes entries older than 24 hours when new notifications arrive.
-- The user manually starts a sync from the Android app. Sync encrypts the candidate list on-device using the OTP Hub account password, PBKDF2-HMAC-SHA256 (310,000 iterations), and AES-256-GCM before upload. While the website inbox is unlocked and the browser tab is visible, it checks for a new encrypted snapshot every 2 seconds and updates the displayed inbox automatically after a phone sync.
-- The website decrypts the payload in the browser only after the user enters the same account password. The passphrase and plaintext OTP list are not sent to the server.
-- The server stores one encrypted inbox payload per account. The website can refresh, lock, and clear the synced inbox.
-- The website filters out entries older than 24 hours when decrypting. The server-side encrypted snapshot is replaced on the next sync or when the user clears it.
+- The notification listener extracts likely numeric OTP candidates from notifications that Android actually delivers to it. Hidden previews and notifications that are not posted by the source app cannot be read.
+- Optional remote SMS scanning is separately opt-in and requires the Android `READ_SMS` runtime permission. The phone scans at most the 500 newest SMS inbox records in memory and returns no more than the five newest OTP candidates.
+- SMS message bodies are not stored or uploaded. Only the candidate code, sender label, receive time, and channel are included in the result.
+- The website's **Scan SMS on my phone** button queues a command for the paired Android device. The Android app must be signed in, online, and have **Allow remote SMS scans from website** enabled.
+- Remote scan results are encrypted on-device using the existing account passphrase (PBKDF2-HMAC-SHA256 and AES-256-GCM) before upload. The website decrypts them in the browser after the inbox is unlocked.
+- Android WorkManager checks remote commands periodically. Android may defer background work because of battery saver, network state, force-stop, or vendor background restrictions; this is not guaranteed to be instant.
+- The app's existing Automatic encrypted sync remains separate and optional. The website refreshes encrypted inbox data while the tab is open and visible.
+- WhatsApp private chats are not scanned. OTPs may be detected only from WhatsApp notifications that Android exposes to the enabled notification listener; there is no direct WhatsApp database access.
 
-**Limitations:** Android can only detect content actually exposed in notifications delivered to the listener. Hidden notification previews, suppressed notifications, or apps that do not show the code in their notification may not be detected. This does not scan SMS history, WhatsApp chats, email inboxes, or photos, and does not bypass app privacy controls.
+**Privacy and security:** SMS and notification access are sensitive. Enable each permission only if you understand it, keep OTP Hub account credentials private, and disable Remote SMS Scan when you no longer need it. The server stores remote scan results encrypted, not as plaintext SMS. This is an early testing build and has not had an independent security audit.
 
 ## Android app
 
