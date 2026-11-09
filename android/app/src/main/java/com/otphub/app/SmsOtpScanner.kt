@@ -14,7 +14,7 @@ import org.json.JSONObject
  */
 object SmsOtpScanner {
     private val contextBeforeCode = Regex(
-        "(?i)\\b(?:otp|one[- ]time|verification|verify|security|login|passcode|code|pin)\\b[\\s\\S]{0,60}?(?<!\\d)(\\d{4,8})(?!\\d)"
+        "(?i)\\b(?:otp|one[- ]time|verification|verify|security|login|passcode|code|pin)\\b[\\s\\S]{0,60}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)"
     )
     private val codeBeforeContext = Regex(
         "(?i)(?<!\\d)(\\d{4,8})(?!\\d)[\\s\\S]{0,60}\\b(?:otp|one[- ]time|verification|verify|security|login|passcode|code|pin)\\b"
@@ -43,9 +43,10 @@ object SmsOtpScanner {
             while (cursor.moveToNext() && examined < 5 && results.size < 5) {
                 examined++
                 val body = cursor.getString(bodyIndex).orEmpty()
-                val code = contextBeforeCode.find(body)?.groupValues?.getOrNull(1)
+                val rawCode = contextBeforeCode.find(body)?.groupValues?.getOrNull(1)
                     ?: codeBeforeContext.find(body)?.groupValues?.getOrNull(1)
                     ?: continue
+                val code = rawCode.filter { it.isDigit() }.takeIf { it.length in 4..8 } ?: continue
                 val address = if (addressIndex >= 0) cursor.getString(addressIndex).orEmpty() else ""
                 val receivedAt = if (dateIndex >= 0) cursor.getLong(dateIndex) else 0L
                 val key = "$code|$address|$receivedAt"
