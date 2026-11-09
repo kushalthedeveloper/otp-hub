@@ -119,8 +119,9 @@ class OtpNotificationListener : NotificationListenerService() {
         // Match the code near a meaningful OTP/login/verification keyword in
         // either order. This avoids treating arbitrary dates or phone numbers
         // elsewhere in a notification as OTPs.
-        return CONTEXT_BEFORE_CODE.find(content)?.groupValues?.getOrNull(1)
+        val raw = CONTEXT_BEFORE_CODE.find(content)?.groupValues?.getOrNull(1)
             ?: CODE_BEFORE_CONTEXT.find(content)?.groupValues?.getOrNull(1)
+        return raw?.filter { it.isDigit() }?.takeIf { it.length in 4..8 }
     }
 
     private fun scheduleEncryptedUpload() {
@@ -140,7 +141,7 @@ class OtpNotificationListener : NotificationListenerService() {
 
     companion object {
         private val OTP_CONTEXT = "(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin)"
-        private val CONTEXT_BEFORE_CODE = Regex("(?i)\\b$OTP_CONTEXT\\b[\\s\\S]{0,48}?(?<!\\d)(\\d{4,8})(?!\\d)")
+        private val CONTEXT_BEFORE_CODE = Regex("(?i)\\b$OTP_CONTEXT\\b[\\s\\S]{0,48}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)")
         private val CODE_BEFORE_CONTEXT = Regex("(?i)(?<!\\d)(\\d{4,8})(?!\\d)[\\s\\S]{0,48}\\b$OTP_CONTEXT\\b")
         private val BRAND = Regex("(?i)\\b(Rapido|Uber|Ola|Swiggy|Zomato|Amazon|Flipkart|Paytm|PhonePe|Google|Microsoft|Telegram|WhatsApp|IRCTC|Meesho|Ajio|Myntra)\\b")
 
