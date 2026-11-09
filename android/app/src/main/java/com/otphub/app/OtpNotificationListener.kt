@@ -142,7 +142,7 @@ class OtpNotificationListener : NotificationListenerService() {
     companion object {
         private val OTP_CONTEXT = "(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin)"
         private val CONTEXT_BEFORE_CODE = Regex("(?i)\\b$OTP_CONTEXT\\b[\\s\\S]{0,48}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)")
-        private val CODE_BEFORE_CONTEXT = Regex("(?i)(?<!\\d)(\\d{4,8})(?!\\d)[\\s\\S]{0,48}\\b$OTP_CONTEXT\\b")
+        private val CODE_BEFORE_CONTEXT = Regex("(?i)(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)[\\s\\S]{0,48}\\b$OTP_CONTEXT\\b")
         private val BRAND = Regex("(?i)\\b(Rapido|Uber|Ola|Swiggy|Zomato|Amazon|Flipkart|Paytm|PhonePe|Google|Microsoft|Telegram|WhatsApp|IRCTC|Meesho|Ajio|Myntra)\\b")
 
         private fun canonicalBrand(value: String): String = when (value.lowercase()) {
