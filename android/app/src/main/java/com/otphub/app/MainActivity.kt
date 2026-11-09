@@ -337,7 +337,7 @@ class MainActivity : Activity() {
                     val recent = JSONArray()
                     for (i in 0 until detected.length()) {
                         val item = detected.optJSONObject(i) ?: continue
-                        if (now - item.optLong("receivedAt") <= 24L * 60L * 60L * 1000L) recent.put(item)
+                        if (now - item.optLong("receivedAt") <= 7L * 24L * 60L * 60L * 1000L) recent.put(item)
                     }
                     val encrypted = encryptNotificationSnapshot(recent, phrase)
                     callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
