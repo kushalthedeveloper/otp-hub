@@ -36,7 +36,7 @@ object SmsOtpScanner {
         val seen = mutableSetOf<String>()
         val cursor = context.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI, projection, null, null,
-            "\${Telephony.Sms.DATE} DESC"
+            "${Telephony.Sms.DATE} DESC"
         ) ?: throw IllegalStateException("Android did not provide the SMS inbox cursor")
 
         cursor.use {
