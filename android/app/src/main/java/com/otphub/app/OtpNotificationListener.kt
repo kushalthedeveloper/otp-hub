@@ -105,6 +105,8 @@ class OtpNotificationListener : NotificationListenerService() {
             if (text.isNotEmpty()) parts.add(text)
         }
         add(extras.getCharSequence(Notification.EXTRA_TITLE))
+        add(extras.getCharSequence(Notification.EXTRA_TITLE_BIG))
+        add(extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE))
         add(extras.getCharSequence(Notification.EXTRA_TEXT))
         add(extras.getCharSequence(Notification.EXTRA_BIG_TEXT))
         add(extras.getCharSequence(Notification.EXTRA_SUB_TEXT))
@@ -115,8 +117,16 @@ class OtpNotificationListener : NotificationListenerService() {
         // MessagingStyle notifications (including WhatsApp) commonly expose
         // message text as Bundle entries in android.messages.
         extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.forEach { item ->
-            val message = item as? Bundle ?: return@forEach
-            add(message.getCharSequence("text"))
+            when (item) {
+                is Notification.MessagingStyle.Message -> add(item.text)
+                is Bundle -> add(item.getCharSequence("text"))
+            }
+        }
+        extras.getParcelableArray(Notification.EXTRA_HISTORIC_MESSAGES)?.forEach { item ->
+            when (item) {
+                is Notification.MessagingStyle.Message -> add(item.text)
+                is Bundle -> add(item.getCharSequence("text"))
+            }
         }
         return parts.joinToString(" ").take(MAX_NOTIFICATION_TEXT)
     }
@@ -142,7 +152,7 @@ class OtpNotificationListener : NotificationListenerService() {
     companion object {
         private const val HISTORY_WINDOW_MS = 7L * 24L * 60L * 60L * 1000L
         private const val MAX_HISTORY = 50
-        private const val MAX_NOTIFICATION_TEXT = 6000
+        private const val MAX_NOTIFICATION_TEXT = 12000
         private const val OTP_CONTEXT = "(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin|authentication|auth|account|whatsapp)"
         private val CONTEXT_BEFORE_CODE = Regex("(?i)\\b$OTP_CONTEXT\\b[\\s\\S]{0,100}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)")
         private val CODE_BEFORE_CONTEXT = Regex("(?i)(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)[\\s\\S]{0,100}\\b$OTP_CONTEXT\\b")
