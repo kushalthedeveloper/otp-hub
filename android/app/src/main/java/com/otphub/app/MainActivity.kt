@@ -281,10 +281,21 @@ class MainActivity : Activity() {
         val state = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
         val connectedAt = state.getLong("listener_connected_at", 0L)
         val disconnectedAt = state.getLong("listener_disconnected_at", 0L)
+        val diagnostics = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+        val lastPackage = diagnostics.getString("last_notification_package", "").orEmpty()
+        val lastLength = diagnostics.getInt("last_notification_text_length", 0)
+        val matched = diagnostics.getBoolean("last_notification_otp_match", false)
+        val lastError = diagnostics.getString("last_notification_error", "").orEmpty()
+        val event = if (lastPackage.isBlank()) {
+            "No notification callback recorded by OTP Hub yet."
+        } else {
+            "Last notification: ${lastPackage.substringAfterLast('.')} · text length: $lastLength · OTP match: ${if (matched) "yes" else "no"}" +
+                if (lastError.isNotBlank()) " · listener error: $lastError" else ""
+        }
         return when {
             !enabled -> "Notification access is off. Enable it to detect OTP notifications."
-            connectedAt > disconnectedAt && connectedAt > 0L -> "Connected · background notification detection is available while Android keeps the listener bound."
-            else -> "Access enabled · waiting for Android to connect the notification listener."
+            connectedAt > disconnectedAt && connectedAt > 0L -> "Connected · background notification detection is available while Android keeps the listener bound.\n$event"
+            else -> "Access enabled · waiting for Android to connect the notification listener.\n$event"
         }
     }
 
