@@ -4,6 +4,8 @@ import android.app.Activity
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
@@ -36,6 +38,20 @@ class MainActivity : Activity() {
     private val publicKey = "sb_publishable_Ot6DZiGzEaebJMDSjiC23Q_1BwRqCYP"
     private val prefs by lazy { getSharedPreferences("otp_hub_session", MODE_PRIVATE) }
     private val worker = Executors.newSingleThreadExecutor()
+    private val remotePollHandler = Handler(Looper.getMainLooper())
+    private val remotePollRunnable = object : Runnable {
+        override fun run() {
+            if (getSharedPreferences("otp_hub_remote", MODE_PRIVATE).getBoolean("enabled", false)) {
+                val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                    "otp-hub-remote-commands-foreground",
+                    ExistingWorkPolicy.KEEP,
+                    OneTimeWorkRequestBuilder<RemoteCommandWorker>().setConstraints(constraints).build()
+                )
+            }
+            remotePollHandler.postDelayed(this, 20_000L)
+        }
+    }
     private lateinit var root: LinearLayout
     private var token = ""
     private var username = ""
@@ -43,8 +59,19 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        startForegroundRemotePolling()
         // Refresh the inbox and access status after returning from Android settings.
         if (homeScreenActive && token.isNotBlank()) showHome()
+    }
+
+    override fun onPause() {
+        remotePollHandler.removeCallbacks(remotePollRunnable)
+        super.onPause()
+    }
+
+    private fun startForegroundRemotePolling() {
+        remotePollHandler.removeCallbacks(remotePollRunnable)
+        remotePollHandler.post(remotePollRunnable)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -313,7 +340,7 @@ class MainActivity : Activity() {
             }
             root.addView(remoteSwitch, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
             root.addView(TextView(this).apply {
-                text = "When enabled, the website can request a scan of only the 5 newest SMS inbox entries. No older messages are examined. Up to 5 OTP matches from those entries are encrypted and returned. The phone checks queued requests periodically; Android may delay background work."
+                text = "When enabled, the website can request a scan of up to the 500 newest SMS inbox entries. The phone returns up to 5 newest OTP matches, encrypted before upload. While this app is open, it checks requests every 20 seconds; in the background Android may delay checks."
                 textSize = 12f
                 setTextColor(0xFF686477.toInt())
                 setPadding(dp(4), 0, dp(4), dp(12))
