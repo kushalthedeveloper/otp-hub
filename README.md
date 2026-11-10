@@ -15,12 +15,12 @@ OTP Hub is a personal OTP notification inbox with username/password accounts and
 ## Incoming OTP inbox and remote SMS scan
 
 - Android notification scanning is opt-in and requires the user to enable Android's Notification Access permission.
-- The notification listener extracts likely numeric OTP candidates from notifications that Android actually delivers to it. Hidden previews and notifications that are not posted by the source app cannot be read.
-- Optional remote SMS scanning is separately opt-in and requires the Android `READ_SMS` runtime permission. The phone scans at most the 500 newest SMS inbox records in memory and returns no more than the five newest OTP candidates.
+- The notification listener extracts likely numeric OTP candidates from notification title, expanded text, and Android MessagingStyle chat-message payloads (including WhatsApp) that Android actually delivers to it. Hidden previews and notifications that are not posted by the source app cannot be read.
+- Optional remote SMS scanning is separately opt-in and requires the Android `READ_SMS` runtime permission. The phone examines up to the 500 newest SMS inbox records in memory and returns no more than the five newest OTP matches, even when the matches are older than the five newest messages.
 - SMS message bodies are not stored or uploaded. Only the candidate code, sender label, receive time, and channel are included in the result.
 - The website's **Scan SMS on my phone** button queues a command for the paired Android device. The Android app must be signed in, online, and have **Allow remote SMS scans from website** enabled.
 - Remote scan results are encrypted on-device using the existing account passphrase (PBKDF2-HMAC-SHA256 and AES-256-GCM) before upload. The website decrypts them in the browser after the inbox is unlocked.
-- Android WorkManager checks remote commands periodically. Android may defer background work because of battery saver, network state, force-stop, or vendor background restrictions; this is not guaranteed to be instant.
+- Android WorkManager checks remote commands periodically, and the app also polls every 20 seconds while it is open to make a website-requested scan start sooner. Android may defer background work because of battery saver, network state, force-stop, or vendor background restrictions; this is not guaranteed to be instant.
 - The app's existing Automatic encrypted sync remains separate and optional. The website refreshes encrypted inbox data while the tab is open and visible.
 - WhatsApp private chats are not scanned. OTPs may be detected only from WhatsApp notifications that Android exposes to the enabled notification listener; there is no direct WhatsApp database access.
 
