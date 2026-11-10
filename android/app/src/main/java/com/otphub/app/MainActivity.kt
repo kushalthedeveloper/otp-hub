@@ -357,6 +357,7 @@ class MainActivity : Activity() {
                 setPadding(dp(4), 0, dp(4), dp(12))
             })
             sectionLabel("YOUR OTP INBOX")
+            button("Import OTP from clipboard") { importOtpFromClipboard() }
             addOtpInboxToHome()
             sectionLabel("SECURE WEBSITE SYNC")
             val autoPrefs = getSharedPreferences("otp_hub_autosync", MODE_PRIVATE)
@@ -445,6 +446,61 @@ class MainActivity : Activity() {
     }
 
 
+
+    private fun importOtpFromClipboard() {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        val clip = clipboard.primaryClip
+        if (clip == null || clip.itemCount == 0) {
+            message("Clipboard is empty. First use Copy Code in WhatsApp, then return here.")
+            return
+        }
+        val text = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty().trim()
+        if (text.isBlank()) {
+            message("No readable text found in clipboard.")
+            return
+        }
+        val context = Regex("(?i)\\b(otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin|authentication|auth|instagram|whatsapp)\\b")
+        val match = Regex("(?<!\\d)(\\d{3}[- ]?\\d{3}|\\d{4,8})(?!\\d)").find(text)
+        val digits = match?.groupValues?.getOrNull(1)?.filter(Char::isDigit).orEmpty()
+        if (digits.length !in 4..8 || !context.containsMatchIn(text)) {
+            message("No verification code found. Copy the code itself from WhatsApp and try again.")
+            return
+        }
+        val source = when {
+            text.contains("instagram", true) -> "Instagram"
+            text.contains("whatsapp", true) -> "WhatsApp"
+            else -> "Copied code"
+        }
+        val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+        val old = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
+        val now = System.currentTimeMillis()
+        val duplicate = (0 until old.length()).any { index ->
+            val item = old.optJSONObject(index) ?: return@any false
+            item.optString("code") == digits && item.optString("source") == source &&
+                kotlin.math.abs(now - item.optLong("receivedAt")) <= 30_000L
+        }
+        if (!duplicate) {
+            val next = JSONArray()
+            next.put(JSONObject().put("code", digits).put("source", source)
+                .put("receivedAt", now).put("channel", "Clipboard"))
+            for (index in 0 until old.length()) {
+                val item = old.optJSONObject(index) ?: continue
+                if (now - item.optLong("receivedAt") <= 7L * 24L * 60L * 60L * 1000L &&
+                    next.length() < 49) next.put(JSONObject(item.toString()))
+            }
+            prefs.edit().putString("detected", next.toString()).apply()
+            if (getSharedPreferences("otp_hub_autosync", MODE_PRIVATE).getBoolean("enabled", false)) {
+                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                    "otp-hub-otp-upload", ExistingWorkPolicy.APPEND_OR_REPLACE,
+                    OneTimeWorkRequestBuilder<OtpUploadWorker>()
+                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        .build()
+                )
+            }
+        }
+        message(if (duplicate) "This code is already in your inbox." else "$source code imported into OTP Hub.")
+        showHome()
+    }
 
     private fun addOtpInboxToHome() {
         val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
