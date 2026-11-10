@@ -52,7 +52,17 @@ class OtpNotificationListener : NotificationListenerService() {
         if (sbn.packageName == packageName) return
         try {
             val content = collectNotificationText(sbn)
-            val code = findOtp(content) ?: return
+            val code = findOtp(content)
+            val diagnostic = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
+            diagnostic.edit()
+                .putInt("notification_count", diagnostic.getInt("notification_count", 0) + 1)
+                .putString("last_notification_package", sbn.packageName)
+                .putInt("last_notification_text_length", content.length)
+                .putBoolean("last_notification_otp_match", code != null)
+                .putLong("last_notification_at", System.currentTimeMillis())
+                .putString("last_notification_keys", sbn.notification.extras?.keySet()?.joinToString(",")?.take(500).orEmpty())
+                .apply()
+            if (code == null) return
             val source = when (sbn.packageName) {
                 "com.whatsapp", "com.whatsapp.w4b" -> "WhatsApp"
                 else -> BRAND.find(content)?.value?.let(::canonicalBrand) ?: try {
@@ -91,7 +101,11 @@ class OtpNotificationListener : NotificationListenerService() {
             if (getSharedPreferences("otp_hub_autosync", MODE_PRIVATE).getBoolean("enabled", false)) {
                 scheduleEncryptedUpload()
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            getSharedPreferences("otp_hub_notifications", MODE_PRIVATE).edit()
+                .putString("last_notification_error", error.javaClass.simpleName)
+                .putLong("last_notification_at", System.currentTimeMillis())
+                .apply()
             // A malformed notification must not crash Android's listener service.
         }
     }
