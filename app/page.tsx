@@ -56,6 +56,8 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const lastPayloadRef = useRef<string>("");
+  const itemsRef = useRef<OtpItem[]>([]);
+  useEffect(() => { itemsRef.current = items; }, [items]);
 
   useEffect(() => {
     let active = true;
@@ -144,15 +146,26 @@ export default function Home() {
         setRemoteRequestedAt(requestedAt);
         sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ commandId: remoteCommandId, status: result.status, requestedAt }));
         if (result.status === "completed" && result.encrypted_result) {
-          const decrypted = await decryptInbox(result.encrypted_result, passphrase);
+          const scanMatches = (await decryptInbox(result.encrypted_result, passphrase)).slice(0, 5);
+          const mergedByKey = new Map<string, OtpItem>();
+          for (const item of [...scanMatches, ...itemsRef.current]) {
+            const key = `${item.code}|${item.source || ""}|${item.receivedAt}`;
+            if (!mergedByKey.has(key)) mergedByKey.set(key, item);
+          }
+          const mergedItems = [...mergedByKey.values()]
+            .sort((a, b) => b.receivedAt - a.receivedAt)
+            .slice(0, 10);
+          const savedPayload = await encryptInbox(mergedItems, passphrase);
+          await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: savedPayload });
           if (!stopped) {
-            const scanMatches = decrypted.slice(0, 5);
-            setItems(scanMatches);
+            itemsRef.current = mergedItems;
+            lastPayloadRef.current = JSON.stringify(savedPayload);
+            setItems(mergedItems);
             setRemoteMatchCount(scanMatches.length);
             setRevealed({});
             setNotice(scanMatches.length === 0
               ? "SMS scan completed. No OTP matches were found in the 500 newest SMS messages."
-              : `SMS scan completed. Found ${scanMatches.length} OTP ${scanMatches.length === 1 ? "match" : "matches"} in the 500 newest SMS messages.`);
+              : `SMS scan completed. Found ${scanMatches.length} OTP ${scanMatches.length === 1 ? "match" : "matches"} in the 500 newest SMS messages. Results were saved to your encrypted inbox.`);
             setError("");
             setRemoteStatus("completed");
             sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ status: "completed", requestedAt, matchCount: scanMatches.length }));
