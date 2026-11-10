@@ -8,16 +8,19 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Reads at most the five newest rows from the SMS Inbox after explicit
- * READ_SMS permission. Message bodies stay in memory and are never persisted
- * or uploaded. Only likely OTP candidates and minimal metadata are returned.
+ * Reads at most the 500 newest SMS inbox rows after explicit READ_SMS permission.
+ * It returns the five newest OTP matches, not merely matches in the five newest messages.
+ * Message bodies stay in memory and are never persisted or uploaded.
  */
 object SmsOtpScanner {
+    private const val MAX_MESSAGES_TO_EXAMINE = 500
+    private const val MAX_OTP_MATCHES = 5
+
     private val contextBeforeCode = Regex(
-        "(?i)\\b(?:otp|one[- ]time(?: password)?|verification|verify|security|login|passcode|password|code|pin|authentication)\\b[\\s\\S]{0,100}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)"
+        "(?i)\\b(?:otp|one[- ]time(?: password)?|verification|verify|security|login|passcode|password|code|pin|authentication)\\b[\\s\\S]{0,120}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)"
     )
     private val codeBeforeContext = Regex(
-        "(?i)(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)[\\s\\S]{0,100}\\b(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin|authentication)\\b"
+        "(?i)(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)[\\s\\S]{0,120}\\b(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin|authentication)\\b"
     )
     private val explicitCode = Regex(
         "(?i)\\b(?:use|enter|type|submit)\\s+(?:the\\s+)?(?:code|otp|pin)\\s*[:is-]*\\s*(\\d{4,8})\\b"
@@ -33,7 +36,7 @@ object SmsOtpScanner {
         val seen = mutableSetOf<String>()
         val cursor = context.contentResolver.query(
             Telephony.Sms.Inbox.CONTENT_URI, projection, null, null,
-            "${Telephony.Sms.DATE} DESC"
+            "\${Telephony.Sms.DATE} DESC"
         ) ?: throw IllegalStateException("Android did not provide the SMS inbox cursor")
 
         cursor.use {
@@ -45,7 +48,7 @@ object SmsOtpScanner {
             }
 
             var examined = 0
-            while (examined < 5 && it.moveToNext()) {
+            while (examined < MAX_MESSAGES_TO_EXAMINE && results.size < MAX_OTP_MATCHES && it.moveToNext()) {
                 examined++
                 val body = it.getString(bodyIndex).orEmpty()
                 val rawCode = contextBeforeCode.find(body)?.groupValues?.getOrNull(1)
