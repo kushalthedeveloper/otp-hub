@@ -151,7 +151,6 @@ export default function Home() {
           }
         }
       } catch {
-        // Keep the last decrypted inbox visible; the next poll retries.
       } finally {
         inFlight = false;
       }
@@ -172,7 +171,7 @@ export default function Home() {
         if (typeof record.matchCount === "number") setRemoteMatchCount(record.matchCount);
         if (record.commandId && ["pending", "running"].includes(record.status || "")) setRemoteCommandId(record.commandId);
       }
-    } catch { /* Ignore an invalid local status record. */ }
+    } catch {}
   }, [token]);
 
   useEffect(() => {
@@ -228,7 +227,6 @@ export default function Home() {
           setRemoteCommandId("");
         }
       } catch {
-        // Retry while the phone is offline or Android has deferred the scan.
       } finally {
         inFlight = false;
       }
@@ -420,10 +418,10 @@ const code: React.CSSProperties = { fontSize:25, letterSpacing:3, fontWeight:800
 const smallButton: React.CSSProperties = { border:"1px solid #44445d", borderRadius:8, padding:"8px 10px", background:"#1a1e30", color:"#d8d1ec", cursor:"pointer", fontSize:12 };
 const danger: React.CSSProperties = { border:"1px solid #75414b", borderRadius:8, padding:"10px 13px", background:"#2b1820", color:"#ffb7c0", cursor:"pointer" };
 const success: React.CSSProperties = { color:"#80e0b5", fontSize:12, lineHeight:1.6, marginTop:14 };
-const scanStatusCard: React.CSSProperties = { margin:"12px 0 18px", padding:14, border:"1px solid #514779", borderRadius:11, background:"#17172a" };
+const scanStatusCard: React.CSSProperties = { margin:"12px 0 18px", padding:14, border:"1px solid #514779", borderRadius:11, background:\"#17172a\" };
 const scanStatusLabel: React.CSSProperties = { display:"inline-block", color:"#c7b8ff", fontSize:12, fontWeight:800, letterSpacing:".6px" };
 const failure: React.CSSProperties = { color:"#ff9ca9", fontSize:12, lineHeight:1.6, marginTop:14 };
-const instructions: React.CSSProperties = { marginTop:22, padding:20, border:"1px solid #292f42", borderRadius:14, background:"#141a28" };
+const instructions: React.CSSProperties = { marginTop:22, padding:20, border:"1px solid #292f42", borderRadius:14, background:\"#141a28\" };
 const steps: React.CSSProperties = { color:"#b7bbca", fontSize:13, lineHeight:1.9, paddingLeft:22 };
 const warning: React.CSSProperties = { color:"#c9b78b", background:"#282315", border:"1px solid #574a2d", borderRadius:10, padding:13, fontSize:11, lineHeight:1.7 };
 const footer: React.CSSProperties = { display:"flex", flexWrap:"wrap", gap:18, paddingTop:22 };
