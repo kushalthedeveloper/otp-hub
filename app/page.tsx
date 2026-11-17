@@ -13,6 +13,8 @@ type OtpItem = {
   rawText?: string;
 };
 
+const DLT_SHORTCODE_RE = /^5\d{6,7}$/;
+
 function fromBase64(value: string) {
   const raw = atob(value);
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
@@ -29,17 +31,17 @@ function extractBestCodeFromText(text: string): string | null {
   const senderIds = new Set(
     Array.from(text.matchAll(/\b[A-Za-z]{2}-(\d{5,8})\b/g), (m) => m[1])
   );
-  const cleaned = text.replace(/(?:^[A-Za-z0-9]{2}-[A-Za-z0-9]{4,9}\b[:\s-]*|^5\d{6}\b[:\s-]*)/gm, " ");
+  const cleaned = text.replace(/(?:^[A-Za-z0-9]{2}-[A-Za-z0-9]{4,9}\b[:\s-]*|^5\d{6,7}\b[:\s-]*)/gm, " ");
   const explicit =
     cleaned.match(/(?:otp|one[- ]time(?:\s+(?:password|passcode|pin|code))?|verification\s+code|security\s+code|login\s+code|passcode|code|pin)\s*(?:is|:|=|-|–|—)?\s*(?:is\s+)?(?<![\d-])(\d{3}[- ]\d{3}|\d{4,6})(?![\d-])/i)?.[1] ||
     cleaned.match(/(?<![\d-])(\d{3}[- ]\d{3}|\d{4,6})(?![\d-])\s+(?:is\s+(?:your|the)\s+)?(?:otp|one[- ]time|verification|security|login|passcode|code|pin)\b/i)?.[1];
   if (explicit) {
     const digits = explicit.replace(/\D/g, "");
-    if (digits.length >= 4 && digits.length <= 8 && !senderIds.has(digits)) return digits;
+    if (digits.length >= 4 && digits.length <= 8 && !senderIds.has(digits) && !DLT_SHORTCODE_RE.test(digits)) return digits;
   }
   const allNums = Array.from(cleaned.matchAll(/(?<!\d)(\d{4,8})(?!\d)/g), (m) => m[1])
-    .filter((d) => !senderIds.has(d));
-  return allNums.find((d) => !/^5\d{6}$/.test(d)) || allNums[0] || null;
+    .filter((d) => !senderIds.has(d) && !DLT_SHORTCODE_RE.test(d));
+  return allNums[0] || null;
 }
 
 async function encryptInbox(items: OtpItem[], passphrase: string) {
@@ -91,6 +93,7 @@ export default function Home() {
   const [items, setItems] = useState<OtpItem[]>([]);
   const [unlocked, setUnlocked] = useState(false);
   const [hidden, setHidden] = useState<Record<number, boolean>>({});
+  const [hideShortcodes, setHideShortcodes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteCommandId, setRemoteCommandId] = useState("");
@@ -125,8 +128,13 @@ export default function Home() {
     return () => { active = false; };
   }, [router]);
 
-  const recentItems = useMemo(
-    () => items.filter((item) => Date.now() - item.receivedAt <= 7 * 24 * 60 * 60 * 1000),
+  const recentItems = useMemo(() => {
+    const withinWindow = items.filter((item) => Date.now() - item.receivedAt <= 7 * 24 * 60 * 60 * 1000);
+    return hideShortcodes ? withinWindow.filter((item) => !DLT_SHORTCODE_RE.test(item.code)) : withinWindow;
+  }, [items, hideShortcodes]);
+
+  const hasShortcodeEntries = useMemo(
+    () => items.some((item) => DLT_SHORTCODE_RE.test(item.code)),
     [items]
   );
 
@@ -336,13 +344,29 @@ export default function Home() {
             <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Opening inbox…" : "Retry opening inbox"}</button>
             <button style={textButton} onClick={() => router.replace("/account")}>Sign in again</button>
           </> : <>
-            <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
+            <div style={toolbar}>
+              <span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span>
+              <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                {hasShortcodeEntries && (
+                  <button style={textButton} onClick={() => setHideShortcodes((v) => !v)}>
+                    {hideShortcodes ? "Show sender IDs" : "Hide sender IDs (57273200)"}
+                  </button>
+                )}
+                <button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button>
+                <button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button>
+              </div>
+            </div>
             <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",margin:"8px 0 16px"}}>
               <button style={primary} disabled={remoteBusy} onClick={requestSmsScan}>
                 {remoteBusy ? "Requesting scan…" : "Scan SMS on my phone"}
               </button>
               <span style={muted}>Pulls the latest SMS OTPs remotely if Remote SMS Scan is enabled on your phone.</span>
             </div>
+            {hasShortcodeEntries && (
+              <div style={infoBanner}>
+                <b>Why 57273200 / 5253200 appeared:</b> Those 7–8 digit numbers are Indian SMS sender shortcodes (e.g. <code>AD-57273200</code>) captured by the older Android APK before the regex fix. The Android app never uploads full SMS text for privacy, so past entries only contain that sender ID. Once the updated APK is installed on your phone, new OTPs will show the real 4–6 digit verification code.
+              </div>
+            )}
             {remoteStatus !== "idle" && <div role="status" aria-live="polite" style={scanStatusCard}>
               <strong style={{display:"block",color:"#eee9ff",marginBottom:5}}>Latest SMS scan request</strong>
               <span style={scanStatusLabel}>{remoteStatus === "pending" ? "REQUESTED · WAITING FOR PHONE" : remoteStatus === "running" ? "SCANNING ON PHONE" : remoteStatus === "completed" ? "COMPLETED" : remoteStatus === "failed" ? "FAILED" : remoteStatus === "expired" ? "EXPIRED · NOT COMPLETED" : remoteStatus.toUpperCase()}</span>
@@ -351,14 +375,14 @@ export default function Home() {
             </div>}
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app, or click "Scan SMS on my phone" above to pull recent SMS codes.</p></div> :
               <div style={list}>{recentItems.map((item, index) => {
-                const isShortcode = /^5\d{6}$/.test(item.code);
+                const isShortcode = DLT_SHORTCODE_RE.test(item.code);
                 return (
                   <article key={item.receivedAt + "-" + index} style={otpRow}>
                     <div>
                       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
                         <strong style={{color:"#d9d0ff",fontSize:13}}>{item.source || "Unknown service"}</strong>
                         {item.channel && <span style={badge}>{item.channel}</span>}
-                        {isShortcode && <span style={warnBadge}>Sender ID captured by older APK</span>}
+                        {isShortcode && <span style={warnBadge}>SMS Sender Shortcode · not OTP</span>}
                       </div>
                       <div style={code}>{hidden[index] ? "••••••" : item.code}</div>
                       {item.rawText && <p style={{...muted,margin:"4px 0"}}>{item.rawText}</p>}
@@ -407,6 +431,7 @@ const sectionHead: React.CSSProperties = { display:"flex", justifyContent:"space
 const lock: React.CSSProperties = { border:"1px solid #4a4168", borderRadius:20, padding:"6px 10px", color:"#c5b4ff", fontSize:10 };
 const badge: React.CSSProperties = { border:"1px solid #3b405c", borderRadius:6, padding:"2px 7px", color:"#b8b2d8", fontSize:11 };
 const warnBadge: React.CSSProperties = { border:"1px solid #6b5328", borderRadius:6, padding:"2px 7px", background:"#2c2212", color:"#f0c674", fontSize:11 };
+const infoBanner: React.CSSProperties = { margin:"10px 0 14px", padding:"12px 14px", border:"1px solid #5c4926", borderRadius:10, background:"#221b10", color:"#e6cfa1", fontSize:12, lineHeight:1.6 };
 const primary: React.CSSProperties = { border:0, borderRadius:9, padding:"12px 16px", background:"linear-gradient(135deg,#9476f0,#7053d2)", color:"white", fontWeight:700, cursor:"pointer" };
 const secondary: React.CSSProperties = { border:"1px solid #42445a", borderRadius:9, padding:"10px 14px", background:"#171c2b", color:"#ddd7ef", cursor:"pointer" };
 const toolbar: React.CSSProperties = { display:"flex", justifyContent:"space-between", alignItems:"center", margin:"18px 0 12px" };
@@ -418,10 +443,10 @@ const code: React.CSSProperties = { fontSize:25, letterSpacing:3, fontWeight:800
 const smallButton: React.CSSProperties = { border:"1px solid #44445d", borderRadius:8, padding:"8px 10px", background:"#1a1e30", color:"#d8d1ec", cursor:"pointer", fontSize:12 };
 const danger: React.CSSProperties = { border:"1px solid #75414b", borderRadius:8, padding:"10px 13px", background:"#2b1820", color:"#ffb7c0", cursor:"pointer" };
 const success: React.CSSProperties = { color:"#80e0b5", fontSize:12, lineHeight:1.6, marginTop:14 };
-const scanStatusCard: React.CSSProperties = { margin:"12px 0 18px", padding:14, border:"1px solid #514779", borderRadius:11, background:\"#17172a\" };
+const scanStatusCard: React.CSSProperties = { margin:"12px 0 18px", padding:14, border:"1px solid #514779", borderRadius:11, background:"#17172a" };
 const scanStatusLabel: React.CSSProperties = { display:"inline-block", color:"#c7b8ff", fontSize:12, fontWeight:800, letterSpacing:".6px" };
 const failure: React.CSSProperties = { color:"#ff9ca9", fontSize:12, lineHeight:1.6, marginTop:14 };
-const instructions: React.CSSProperties = { marginTop:22, padding:20, border:"1px solid #292f42", borderRadius:14, background:\"#141a28\" };
+const instructions: React.CSSProperties = { marginTop:22, padding:20, border:"1px solid #292f42", borderRadius:14, background:"#141a28" };
 const steps: React.CSSProperties = { color:"#b7bbca", fontSize:13, lineHeight:1.9, paddingLeft:22 };
 const warning: React.CSSProperties = { color:"#c9b78b", background:"#282315", border:"1px solid #574a2d", borderRadius:10, padding:13, fontSize:11, lineHeight:1.7 };
 const footer: React.CSSProperties = { display:"flex", flexWrap:"wrap", gap:18, paddingTop:22 };
