@@ -9,22 +9,11 @@ import org.json.JSONObject
 
 /**
  * Reads at most the 500 newest SMS inbox rows after explicit READ_SMS permission.
- * It returns the five newest OTP matches, not merely matches in the five newest messages.
- * Message bodies stay in memory and are never persisted or uploaded.
+ * Returns up to the 5 newest genuine OTP matches using the shared DLT-safe extractor.
  */
 object SmsOtpScanner {
     private const val MAX_MESSAGES_TO_EXAMINE = 500
     private const val MAX_OTP_MATCHES = 5
-
-    private val contextBeforeCode = Regex(
-        "(?i)\\b(?:otp|one[- ]time(?: password)?|verification|verify|security|login|passcode|password|code|pin|authentication)\\b[\\s\\S]{0,120}?(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)"
-    )
-    private val codeBeforeContext = Regex(
-        "(?i)(?<!\\d)(\\d{3}[- ]\\d{3}|\\d{4,8})(?!\\d)[\\s\\S]{0,120}\\b(?:otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin|authentication)\\b"
-    )
-    private val explicitCode = Regex(
-        "(?i)\\b(?:use|enter|type|submit)\\s+(?:the\\s+)?(?:code|otp|pin)\\s*[:is-]*\\s*(\\d{4,8})\\b"
-    )
 
     fun scanLastFive(context: Context): JSONArray {
         if (context.checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
@@ -51,20 +40,18 @@ object SmsOtpScanner {
             while (examined < MAX_MESSAGES_TO_EXAMINE && results.size < MAX_OTP_MATCHES && it.moveToNext()) {
                 examined++
                 val body = it.getString(bodyIndex).orEmpty()
-                val rawCode = contextBeforeCode.find(body)?.groupValues?.getOrNull(1)
-                    ?: codeBeforeContext.find(body)?.groupValues?.getOrNull(1)
-                    ?: explicitCode.find(body)?.groupValues?.getOrNull(1)
-                    ?: continue
-                val code = rawCode.filter(Char::isDigit).takeIf { value -> value.length in 4..8 } ?: continue
+                val code = OtpNotificationListener.findOtp(body) ?: continue
                 val address = if (addressIndex >= 0) it.getString(addressIndex).orEmpty() else ""
                 val receivedAt = it.getLong(dateIndex)
                 val key = "$code|$address|$receivedAt"
                 if (!seen.add(key)) continue
-                results.add(JSONObject()
-                    .put("code", code)
-                    .put("source", address.take(48).ifBlank { "SMS" })
-                    .put("receivedAt", receivedAt)
-                    .put("channel", "SMS"))
+                results.add(
+                    JSONObject()
+                        .put("code", code)
+                        .put("source", address.take(48).ifBlank { "SMS" })
+                        .put("receivedAt", receivedAt)
+                        .put("channel", "SMS")
+                )
             }
         }
         return JSONArray(results)
