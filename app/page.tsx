@@ -5,7 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { clearAccount, getSavedAccount, rpc, validateAccount } from "./lib/otpHub";
 
-type OtpItem = { code: string; receivedAt: number; source?: string };
+type OtpItem = {
+  code: string;
+  receivedAt: number;
+  source?: string;
+  channel?: string;
+  rawText?: string;
+};
 
 function fromBase64(value: string) {
   const raw = atob(value);
@@ -17,6 +23,25 @@ function toBase64(value: ArrayBuffer) {
   bytes.forEach((byte) => { raw += String.fromCharCode(byte); });
   return btoa(raw);
 }
+
+function extractBestCodeFromText(text: string): string | null {
+  if (!text) return null;
+  const senderIds = new Set(
+    Array.from(text.matchAll(/\b[A-Za-z]{2}-(\d{5,8})\b/g), (m) => m[1])
+  );
+  const cleaned = text.replace(/(?:^[A-Za-z0-9]{2}-[A-Za-z0-9]{4,9}\b[:\s-]*|^5\d{6}\b[:\s-]*)/gm, " ");
+  const explicit =
+    cleaned.match(/(?:otp|one[- ]time(?:\s+(?:password|passcode|pin|code))?|verification\s+code|security\s+code|login\s+code|passcode|code|pin)\s*(?:is|:|=|-|–|—)?\s*(?:is\s+)?(?<![\d-])(\d{3}[- ]\d{3}|\d{4,6})(?![\d-])/i)?.[1] ||
+    cleaned.match(/(?<![\d-])(\d{3}[- ]\d{3}|\d{4,6})(?![\d-])\s+(?:is\s+(?:your|the)\s+)?(?:otp|one[- ]time|verification|security|login|passcode|code|pin)\b/i)?.[1];
+  if (explicit) {
+    const digits = explicit.replace(/\D/g, "");
+    if (digits.length >= 4 && digits.length <= 8 && !senderIds.has(digits)) return digits;
+  }
+  const allNums = Array.from(cleaned.matchAll(/(?<!\d)(\d{4,8})(?!\d)/g), (m) => m[1])
+    .filter((d) => !senderIds.has(d));
+  return allNums.find((d) => !/^5\d{6}$/.test(d)) || allNums[0] || null;
+}
+
 async function encryptInbox(items: OtpItem[], passphrase: string) {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -25,6 +50,7 @@ async function encryptInbox(items: OtpItem[], passphrase: string) {
   const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(JSON.stringify(items)));
   return { salt: toBase64(salt.buffer), iv: toBase64(iv.buffer), data: toBase64(encrypted) };
 }
+
 async function decryptInbox(payload: Record<string, string>, passphrase: string): Promise<OtpItem[]> {
   const salt = fromBase64(payload.salt);
   const iv = fromBase64(payload.iv);
@@ -34,8 +60,26 @@ async function decryptInbox(payload: Record<string, string>, passphrase: string)
   const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
   const parsed = JSON.parse(new TextDecoder().decode(clear));
   if (!Array.isArray(parsed)) throw new Error("Inbox data is not valid.");
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  return parsed.filter((item) => typeof item?.code === "string" && /^\d{4,8}$/.test(item.code) && Number(item.receivedAt) >= cutoff).slice(0, 10);
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  return parsed
+    .map((rawItem: Record<string, unknown>) => {
+      const rawText = [rawItem?.text, rawItem?.body, rawItem?.message, rawItem?.preview, rawItem?.title]
+        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+        .join(" ");
+      const rawCode = typeof rawItem?.code === "string" ? rawItem.code.replace(/\D/g, "") : "";
+      const extracted = rawText ? extractBestCodeFromText(rawText) : null;
+      const finalCode = extracted || rawCode;
+      return {
+        code: finalCode,
+        receivedAt: Number(rawItem?.receivedAt) || Date.now(),
+        source: typeof rawItem?.source === "string" ? rawItem.source : undefined,
+        channel: typeof rawItem?.channel === "string" ? rawItem.channel : undefined,
+        rawText: rawText || undefined,
+      };
+    })
+    .filter((item) => /^\d{4,8}$/.test(item.code) && item.receivedAt >= cutoff)
+    .sort((a, b) => b.receivedAt - a.receivedAt)
+    .slice(0, 20);
 }
 
 export default function Home() {
@@ -46,7 +90,7 @@ export default function Home() {
   const [passphrase, setPassphrase] = useState("");
   const [items, setItems] = useState<OtpItem[]>([]);
   const [unlocked, setUnlocked] = useState(false);
-  const [revealed, setRevealed] = useState<Record<number, boolean>>({});
+  const [hidden, setHidden] = useState<Record<number, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteCommandId, setRemoteCommandId] = useState("");
@@ -81,7 +125,11 @@ export default function Home() {
     return () => { active = false; };
   }, [router]);
 
-  const recentItems = useMemo(() => items.filter((item) => Date.now() - item.receivedAt <= 24 * 60 * 60 * 1000), [items]);
+  const recentItems = useMemo(
+    () => items.filter((item) => Date.now() - item.receivedAt <= 7 * 24 * 60 * 60 * 1000),
+    [items]
+  );
+
   useEffect(() => {
     if (!unlocked || !token || passphrase.length < 12) return;
     let stopped = false;
@@ -97,7 +145,7 @@ export default function Home() {
           if (!stopped) {
             lastPayloadRef.current = signature;
             setItems(nextItems);
-            setRevealed({});
+            setHidden({});
             setNotice("New phone sync received. Unified inbox updated automatically.");
             setError("");
           }
@@ -112,7 +160,6 @@ export default function Home() {
     const timer = window.setInterval(() => void poll(), 2000);
     return () => { stopped = true; window.clearInterval(timer); };
   }, [unlocked, token, passphrase]);
-
 
   useEffect(() => {
     if (!token) return;
@@ -146,7 +193,7 @@ export default function Home() {
         setRemoteRequestedAt(requestedAt);
         sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ commandId: remoteCommandId, status: result.status, requestedAt }));
         if (result.status === "completed" && result.encrypted_result) {
-          const scanMatches = (await decryptInbox(result.encrypted_result, passphrase)).slice(0, 5);
+          const scanMatches = (await decryptInbox(result.encrypted_result, passphrase)).slice(0, 10);
           const mergedByKey = new Map<string, OtpItem>();
           for (const item of [...scanMatches, ...itemsRef.current]) {
             const key = `${item.code}|${item.source || ""}|${item.receivedAt}`;
@@ -154,7 +201,7 @@ export default function Home() {
           }
           const mergedItems = [...mergedByKey.values()]
             .sort((a, b) => b.receivedAt - a.receivedAt)
-            .slice(0, 10);
+            .slice(0, 20);
           const savedPayload = await encryptInbox(mergedItems, passphrase);
           await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: savedPayload });
           if (!stopped) {
@@ -162,10 +209,10 @@ export default function Home() {
             lastPayloadRef.current = JSON.stringify(savedPayload);
             setItems(mergedItems);
             setRemoteMatchCount(scanMatches.length);
-            setRevealed({});
+            setHidden({});
             setNotice(scanMatches.length === 0
               ? "SMS scan completed. No OTP matches were found in the 500 newest SMS messages."
-              : `SMS scan completed. Found ${scanMatches.length} OTP ${scanMatches.length === 1 ? "match" : "matches"} in the 500 newest SMS messages. Results were saved to your encrypted inbox.`);
+              : `SMS scan completed. Found ${scanMatches.length} OTP ${scanMatches.length === 1 ? "match" : "matches"} in the 500 newest SMS messages.`);
             setError("");
             setRemoteStatus("completed");
             sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ status: "completed", requestedAt, matchCount: scanMatches.length }));
@@ -206,7 +253,7 @@ export default function Home() {
       setRemoteStatus("pending");
       setRemoteRequestedAt(requestedAt);
       sessionStorage.setItem("otp-hub-remote-scan", JSON.stringify({ commandId: response.command_id, status: "pending", requestedAt }));
-      setNotice("SMS scan request accepted. Waiting for the phone to pick it up; this does not mean scanning has started yet.");
+      setNotice("SMS scan request sent. Waiting for your phone to pick it up automatically.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not request an SMS scan. Make sure the phone is paired and online.");
     } finally {
@@ -219,15 +266,19 @@ export default function Home() {
     try {
       if (passphrase.length < 12) throw new Error("Enter your OTP Hub account password (at least 12 characters).");
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
-      if (!payload) { lastPayloadRef.current = "null"; setItems([]); setUnlocked(true); setNotice("Inbox unlocked. No phone sync has been uploaded yet."); return; }
+      if (!payload) {
+        lastPayloadRef.current = "null";
+        setItems([]);
+        setUnlocked(true);
+        setNotice("Inbox unlocked. No phone sync has been uploaded yet.");
+        return;
+      }
       const decrypted = await decryptInbox(payload, passphrase);
       setItems(decrypted);
-      const normalizedPayload = await encryptInbox(decrypted, passphrase);
-      await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: normalizedPayload });
-      lastPayloadRef.current = JSON.stringify(normalizedPayload);
+      lastPayloadRef.current = JSON.stringify(payload);
       setUnlocked(true);
-      setRevealed({});
-      setNotice("Encrypted inbox unlocked on this device. The server stores only encrypted data.");
+      setHidden({});
+      setNotice(`Encrypted inbox unlocked (${decrypted.length} ${decrypted.length === 1 ? "entry" : "entries"} loaded).`);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not unlock the inbox. Check your passphrase."); }
     finally { setBusy(false); }
   }
@@ -242,13 +293,9 @@ export default function Home() {
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
       const decrypted = payload ? await decryptInbox(payload, passphrase) : [];
       setItems(decrypted);
-      if (payload) {
-        const normalizedPayload = await encryptInbox(decrypted, passphrase);
-        await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: normalizedPayload });
-        lastPayloadRef.current = JSON.stringify(normalizedPayload);
-      } else lastPayloadRef.current = "null";
-      setRevealed({});
-      setNotice("Inbox refreshed from encrypted cloud storage.");
+      lastPayloadRef.current = JSON.stringify(payload ?? null);
+      setHidden({});
+      setNotice(`Inbox refreshed (${decrypted.length} ${decrypted.length === 1 ? "entry" : "entries"}).`);
     } catch (e) { setError(e instanceof Error ? e.message : "Could not refresh the inbox."); }
     finally { setBusy(false); }
   }
@@ -260,7 +307,7 @@ export default function Home() {
       const encrypted = await encryptInbox([], passphrase);
       await rpc("otp_hub_otp_inbox_save", { p_token: token, p_encrypted_payload: encrypted });
       lastPayloadRef.current = JSON.stringify(encrypted);
-      setItems([]); setRevealed({});
+      setItems([]); setHidden({});
       setNotice("Synced OTP inbox cleared.");
     } catch (e) { setError(e instanceof Error ? e.message : "Could not clear the inbox."); }
     finally { setBusy(false); }
@@ -285,7 +332,7 @@ export default function Home() {
         </header>
 
         <section style={inboxCard}>
-          <div style={sectionHead}><div><h2 style={subheading}>Unified OTP inbox</h2><p style={muted}>Up to 10 recent codes · service name and time · auto-filtered after 24 hours</p></div><span style={lock}>AES-256-GCM</span></div>
+          <div style={sectionHead}><div><h2 style={subheading}>Unified OTP inbox</h2><p style={muted}>Recent codes · service name, channel, and time · auto-refreshes every 2 seconds</p></div><span style={lock}>AES-256-GCM</span></div>
           {!unlocked ? <>
             <p style={body}>Your inbox is being decrypted using the account password from this sign-in session. No second vault password is needed.</p>
             <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Opening inbox…" : "Retry opening inbox"}</button>
@@ -293,19 +340,39 @@ export default function Home() {
           </> : <>
             <div style={toolbar}><span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span><div style={{display:"flex",gap:12}}><button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button><button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button></div></div>
             <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",margin:"8px 0 16px"}}>
-              <button style={primary} disabled={remoteBusy || Boolean(remoteCommandId)} onClick={requestSmsScan}>
-                {remoteBusy ? "Requesting scan…" : remoteCommandId ? "SMS scan requested…" : "Scan SMS on my phone"}
+              <button style={primary} disabled={remoteBusy} onClick={requestSmsScan}>
+                {remoteBusy ? "Requesting scan…" : "Scan SMS on my phone"}
               </button>
-              <span style={muted}>Requires the phone's opt-in SMS permission and Remote SMS Scan switch. Background delivery can be delayed by Android.</span>
+              <span style={muted}>Pulls the latest SMS OTPs remotely if Remote SMS Scan is enabled on your phone.</span>
             </div>
             {remoteStatus !== "idle" && <div role="status" aria-live="polite" style={scanStatusCard}>
               <strong style={{display:"block",color:"#eee9ff",marginBottom:5}}>Latest SMS scan request</strong>
               <span style={scanStatusLabel}>{remoteStatus === "pending" ? "REQUESTED · WAITING FOR PHONE" : remoteStatus === "running" ? "SCANNING ON PHONE" : remoteStatus === "completed" ? "COMPLETED" : remoteStatus === "failed" ? "FAILED" : remoteStatus === "expired" ? "EXPIRED · NOT COMPLETED" : remoteStatus.toUpperCase()}</span>
               <p style={muted}>Requested: {remoteRequestedAt ? new Date(remoteRequestedAt).toLocaleString() : "Time unavailable"}</p>
-              <p style={muted}>{remoteStatus === "pending" ? "Request received by the website and queued. Scanning has not started until the phone claims it." : remoteStatus === "running" ? "The phone has confirmed that scanning is in progress. Only the 500 newest SMS inbox messages are checked." : remoteStatus === "completed" ? `Phone confirmed scan completion. ${remoteMatchCount === null ? "The result was received." : `${remoteMatchCount} OTP ${remoteMatchCount === 1 ? "match" : "matches"} found.`} The scan never checks older messages.` : remoteStatus === "expired" ? "The request expired before the phone completed it." : remoteStatus === "failed" ? "The phone reported that it could not complete this scan. See the message above for the reason." : "The scan request status is being tracked."}</p>
+              <p style={muted}>{remoteStatus === "pending" ? "Request received by the website and queued. Scanning starts as soon as the phone polls." : remoteStatus === "running" ? "The phone has confirmed that scanning is in progress." : remoteStatus === "completed" ? `Phone confirmed scan completion. ${remoteMatchCount === null ? "The result was received." : `${remoteMatchCount} OTP ${remoteMatchCount === 1 ? "match" : "matches"} found.`}` : remoteStatus === "expired" ? "The request expired before the phone completed it." : remoteStatus === "failed" ? "The phone reported that it could not complete this scan. See the message above for the reason." : "The scan request status is being tracked."}</p>
             </div>}
-            {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app. New detections upload automatically when Android permits; this inbox checks for new uploads every 2 seconds while unlocked.</p></div> :
-              <div style={list}>{recentItems.map((item, index) => <article key={item.receivedAt + "-" + index} style={otpRow}><div><strong style={{display:"block",color:"#d9d0ff",fontSize:13,marginBottom:5}}>{item.source || "Unknown service"}</strong><div style={code}>{revealed[index] ? item.code : "••••••"}</div><small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small></div><div style={{display:"flex",gap:8}}><button style={smallButton} onClick={() => setRevealed((old) => ({...old,[index]:!old[index]}))}>{revealed[index] ? "Hide" : "Show"}</button><button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button></div></article>)}</div>}
+            {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app, or click "Scan SMS on my phone" above to pull recent SMS codes.</p></div> :
+              <div style={list}>{recentItems.map((item, index) => {
+                const isShortcode = /^5\d{6}$/.test(item.code);
+                return (
+                  <article key={item.receivedAt + "-" + index} style={otpRow}>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+                        <strong style={{color:"#d9d0ff",fontSize:13}}>{item.source || "Unknown service"}</strong>
+                        {item.channel && <span style={badge}>{item.channel}</span>}
+                        {isShortcode && <span style={warnBadge}>Sender ID captured by older APK</span>}
+                      </div>
+                      <div style={code}>{hidden[index] ? "••••••" : item.code}</div>
+                      {item.rawText && <p style={{...muted,margin:"4px 0"}}>{item.rawText}</p>}
+                      <small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small>
+                    </div>
+                    <div style={{display:"flex",gap:8}}>
+                      <button style={smallButton} onClick={() => setHidden((old) => ({...old,[index]:!old[index]}))}>{hidden[index] ? "Show" : "Hide"}</button>
+                      <button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button>
+                    </div>
+                  </article>
+                );
+              })}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
           </>}
           {notice && <p style={success}>{notice}</p>}
@@ -340,8 +407,8 @@ const body: React.CSSProperties = { color:"#b5b7c8", fontSize:13, lineHeight:1.7
 const inboxCard: React.CSSProperties = { border:"1px solid #34304e", borderRadius:16, padding:20, background:"linear-gradient(145deg,#19182b,#121725)" };
 const sectionHead: React.CSSProperties = { display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" };
 const lock: React.CSSProperties = { border:"1px solid #4a4168", borderRadius:20, padding:"6px 10px", color:"#c5b4ff", fontSize:10 };
-const label: React.CSSProperties = { display:"block", color:"#d7d2e9", fontSize:12, fontWeight:700, margin:"16px 0 7px" };
-const input: React.CSSProperties = { display:"block", width:"100%", maxWidth:420, padding:13, borderRadius:9, border:"1px solid #41445b", background:"#0c101b", color:"#fff", marginBottom:12 };
+const badge: React.CSSProperties = { border:"1px solid #3b405c", borderRadius:6, padding:"2px 7px", color:"#b8b2d8", fontSize:11 };
+const warnBadge: React.CSSProperties = { border:"1px solid #6b5328", borderRadius:6, padding:"2px 7px", background:"#2c2212", color:"#f0c674", fontSize:11 };
 const primary: React.CSSProperties = { border:0, borderRadius:9, padding:"12px 16px", background:"linear-gradient(135deg,#9476f0,#7053d2)", color:"white", fontWeight:700, cursor:"pointer" };
 const secondary: React.CSSProperties = { border:"1px solid #42445a", borderRadius:9, padding:"10px 14px", background:"#171c2b", color:"#ddd7ef", cursor:"pointer" };
 const toolbar: React.CSSProperties = { display:"flex", justifyContent:"space-between", alignItems:"center", margin:"18px 0 12px" };
