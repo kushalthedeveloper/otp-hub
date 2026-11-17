@@ -17,8 +17,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Opt-in, on-device OTP notification detector.
- * Processes notification text Android exposes to this listener while stripping
- * DLT sender headers (e.g. AD-57273200, 5253200) before extracting the OTP.
+ * Extracts genuine verification codes while stripping DLT sender IDs/shortcodes
+ * (such as 57273200, 5253200, AD-57273200) and transaction/reference numbers.
  */
 class OtpNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
@@ -83,11 +83,18 @@ class OtpNotificationListener : NotificationListenerService() {
                     kotlin.math.abs(now - item.optLong("receivedAt")) <= 30_000L
             }
             if (!duplicate) {
-                history.add(JSONObject().put("code", code).put("source", source)
-                    .put("receivedAt", now).put("channel", "Notification"))
+                history.add(
+                    JSONObject()
+                        .put("code", code)
+                        .put("source", source)
+                        .put("receivedAt", now)
+                        .put("channel", "Notification")
+                )
             }
             for (i in 0 until old.length()) {
                 val item = old.optJSONObject(i) ?: continue
+                val existingCode = item.optString("code")
+                if (existingCode.matches(DLT_SHORTCODE)) continue
                 if (now - item.optLong("receivedAt") <= HISTORY_WINDOW_MS) {
                     history.add(JSONObject(item.toString()))
                 }
@@ -166,7 +173,7 @@ class OtpNotificationListener : NotificationListenerService() {
         private const val MAX_HISTORY = 50
         private const val MAX_NOTIFICATION_TEXT = 12000
 
-        // Strip Indian DLT / SMS sender headers like "AD-57273200", "VM-5253200", or 7-8 digit shortcodes (57273200, 5253200).
+        // Indian DLT SMS sender headers & shortcodes (e.g., AD-57273200, VM-5253200, 57273200, 56767xx)
         private val DLT_SENDER_HEADER = Regex("(?im)(?:^[A-Za-z0-9]{2}-[A-Za-z0-9]{4,9}\\b[:\\s-]*|^5\\d{6,7}\\b[:\\s-]*)")
         private val SENDER_ID_TOKEN = Regex("(?i)\\b[A-Za-z]{2}-(\\d{5,8})\\b")
         private val DLT_SHORTCODE = Regex("^5\\d{6,7}$")
