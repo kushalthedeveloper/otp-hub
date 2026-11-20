@@ -55,14 +55,17 @@ class RemoteCommandWorker(context: Context, params: WorkerParameters) : Worker(c
                         is SecurityException -> "sms_permission_required"
                         else -> "scan_unavailable"
                     }
-                    rpc("otp_hub_remote_command_complete",
-                        JSONObject()
-                            .put("p_token", token)
-                            .put("p_device_id", deviceId)
-                            .put("p_command_id", commandId)
-                            .put("p_status", "failed")
-                            .put("p_encrypted_result", JSONObject.NULL)
-                            .put("p_error_code", reason))
+                    try {
+                        rpc("otp_hub_remote_command_complete",
+                            JSONObject()
+                                .put("p_token", token)
+                                .put("p_device_id", deviceId)
+                                .put("p_command_id", commandId)
+                                .put("p_status", "failed")
+                                .put("p_encrypted_result", JSONObject.NULL)
+                                .put("p_error_code", reason))
+                    } catch (_: Exception) {
+                    }
                 }
             }
             Result.success()
