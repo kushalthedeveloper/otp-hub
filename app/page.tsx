@@ -16,9 +16,12 @@ type OtpItem = {
 const DLT_SHORTCODE_RE = /^5\d{6,7}$/;
 
 function fromBase64(value: string) {
-  const raw = atob(value);
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/").replace(/\s+/g, "");
+  const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=");
+  const raw = atob(padded);
   return Uint8Array.from(raw, (char) => char.charCodeAt(0));
 }
+
 function toBase64(value: ArrayBuffer) {
   const bytes = new Uint8Array(value);
   let raw = "";
@@ -54,32 +57,41 @@ async function encryptInbox(items: OtpItem[], passphrase: string) {
 }
 
 async function decryptInbox(payload: Record<string, string>, passphrase: string): Promise<OtpItem[]> {
+  if (!payload || typeof payload.salt !== "string" || typeof payload.iv !== "string" || typeof payload.data !== "string") {
+    throw new Error("Encrypted inbox payload is missing required fields.");
+  }
   const salt = fromBase64(payload.salt);
   const iv = fromBase64(payload.iv);
   const encrypted = fromBase64(payload.data);
   const material = await crypto.subtle.importKey("raw", new TextEncoder().encode(passphrase), "PBKDF2", false, ["deriveKey"]);
   const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt, iterations: 310000, hash: "SHA-256" }, material, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
   const clear = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encrypted);
-  const parsed = JSON.parse(new TextDecoder().decode(clear));
-  if (!Array.isArray(parsed)) throw new Error("Inbox data is not valid.");
+  const decodedText = new TextDecoder().decode(clear).trim();
+  const parsed = JSON.parse(decodedText);
+  const rawList = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : null;
+  if (!rawList) throw new Error("Inbox data is not valid.");
   const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return parsed
+  return rawList
     .map((rawItem: Record<string, unknown>) => {
       const rawText = [rawItem?.text, rawItem?.body, rawItem?.message, rawItem?.preview, rawItem?.title]
         .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
         .join(" ");
-      const rawCode = typeof rawItem?.code === "string" ? rawItem.code.replace(/\D/g, "") : "";
+      const rawCode = typeof rawItem?.code === "string" || typeof rawItem?.code === "number"
+        ? String(rawItem.code).replace(/\D/g, "")
+        : "";
       const extracted = rawText ? extractBestCodeFromText(rawText) : null;
       const finalCode = extracted || rawCode;
+      const parsedTime = Number(rawItem?.receivedAt ?? rawItem?.received_at ?? rawItem?.timestamp ?? rawItem?.date);
+      const receivedAt = Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime : Date.now();
       return {
         code: finalCode,
-        receivedAt: Number(rawItem?.receivedAt) || Date.now(),
+        receivedAt,
         source: typeof rawItem?.source === "string" ? rawItem.source : undefined,
         channel: typeof rawItem?.channel === "string" ? rawItem.channel : undefined,
         rawText: rawText || undefined,
       };
     })
-    .filter((item) => /^\d{4,8}$/.test(item.code) && item.receivedAt >= cutoff)
+    .filter((item) => /^\d{4,8}$/.test(item.code) && !DLT_SHORTCODE_RE.test(item.code) && item.receivedAt >= cutoff)
     .sort((a, b) => b.receivedAt - a.receivedAt)
     .slice(0, 20);
 }
