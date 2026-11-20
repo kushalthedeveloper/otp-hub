@@ -105,6 +105,7 @@ export default function Home() {
   const [items, setItems] = useState<OtpItem[]>([]);
   const [unlocked, setUnlocked] = useState(false);
   const [hidden, setHidden] = useState<Record<number, boolean>>({});
+  const [hideShortcodes, setHideShortcodes] = useState(false);
   const [busy, setBusy] = useState(false);
   const [remoteBusy, setRemoteBusy] = useState(false);
   const [remoteCommandId, setRemoteCommandId] = useState("");
@@ -127,9 +128,10 @@ export default function Home() {
         if (!active) return;
         if (!account?.username) { clearAccount(); router.replace("/account"); return; }
         const inboxKey = sessionStorage.getItem("otp-hub-inbox-key") || "";
+        if (inboxKey.length < 12) { router.replace("/account"); return; }
         setToken(saved.token);
         setUsername(account.username);
-        if (inboxKey.length >= 12) setPassphrase(inboxKey);
+        setPassphrase(inboxKey);
       } catch {
         if (active) { clearAccount(); router.replace("/account"); }
       } finally { if (active) setChecking(false); }
@@ -138,8 +140,13 @@ export default function Home() {
     return () => { active = false; };
   }, [router]);
 
-  const recentItems = useMemo(
-    () => items.filter((item) => Date.now() - item.receivedAt <= 7 * 24 * 60 * 60 * 1000),
+  const recentItems = useMemo(() => {
+    const withinWindow = items.filter((item) => Date.now() - item.receivedAt <= 7 * 24 * 60 * 60 * 1000);
+    return hideShortcodes ? withinWindow.filter((item) => !DLT_SHORTCODE_RE.test(item.code)) : withinWindow;
+  }, [items, hideShortcodes]);
+
+  const hasShortcodeEntries = useMemo(
+    () => items.some((item) => DLT_SHORTCODE_RE.test(item.code)),
     [items]
   );
 
@@ -272,13 +279,11 @@ export default function Home() {
     }
   }
 
-  async function unlockInbox(overridePassphrase?: string) {
-    const activePassphrase = (overridePassphrase ?? passphrase).trim();
+  async function unlockInbox() {
     setBusy(true); setError(""); setNotice("");
     try {
-      if (activePassphrase.length < 12) throw new Error("Enter your OTP Hub account password (at least 12 characters).");
+      if (passphrase.length < 12) throw new Error("Enter your OTP Hub account password (at least 12 characters).");
       const payload = await rpc<Record<string, string> | null>("otp_hub_otp_inbox_get", { p_token: token });
-      sessionStorage.setItem("otp-hub-inbox-key", activePassphrase);
       if (!payload) {
         lastPayloadRef.current = "null";
         setItems([]);
@@ -286,18 +291,18 @@ export default function Home() {
         setNotice("Inbox unlocked. No phone sync has been uploaded yet.");
         return;
       }
-      const decrypted = await decryptInbox(payload, activePassphrase);
+      const decrypted = await decryptInbox(payload, passphrase);
       setItems(decrypted);
       lastPayloadRef.current = JSON.stringify(payload);
       setUnlocked(true);
       setHidden({});
       setNotice(`Encrypted inbox unlocked (${decrypted.length} ${decrypted.length === 1 ? "entry" : "entries"} loaded).`);
-    } catch (e) { setError(e instanceof Error ? e.message : "Could not unlock the inbox. Check your password."); }
+    } catch (e) { setError(e instanceof Error ? e.message : "Could not unlock the inbox. Check your passphrase."); }
     finally { setBusy(false); }
   }
 
   useEffect(() => {
-    if (!checking && token && passphrase.length >= 12 && !unlocked) void unlockInbox(passphrase);
+    if (!checking && token && passphrase.length >= 12 && !unlocked) void unlockInbox();
   }, [checking, token, passphrase, unlocked]);
 
   async function refreshInbox() {
@@ -329,8 +334,6 @@ export default function Home() {
   async function signOut() {
     setBusy(true);
     try { await rpc("otp_hub_logout", { p_token: token }); } catch {}
-    sessionStorage.removeItem("otp-hub-inbox-key");
-    sessionStorage.removeItem("otp-hub-remote-scan");
     clearAccount();
     setPassphrase(""); setItems([]); lastPayloadRef.current = "";
     router.replace("/account");
@@ -348,29 +351,21 @@ export default function Home() {
 
         <section style={inboxCard}>
           <div style={sectionHead}><div><h2 style={subheading}>Unified OTP inbox</h2><p style={muted}>Recent codes · service name, channel, and time · auto-refreshes every 2 seconds</p></div><span style={lock}>AES-256-GCM</span></div>
-          {!unlocked ? <form onSubmit={(e) => { e.preventDefault(); void unlockInbox(); }} style={{marginTop:14}}>
-            <p style={body}>Enter your OTP Hub account password to decrypt your synced inbox in this tab.</p>
-            <input
-              type="password"
-              required
-              minLength={12}
-              maxLength={128}
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              placeholder="Enter your OTP Hub account password"
-              autoComplete="current-password"
-              style={unlockInput}
-            />
-            <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap"}}>
-              <button type="submit" style={primary} disabled={busy}>{busy ? "Opening inbox…" : "Unlock inbox"}</button>
-              <button type="button" style={textButton} onClick={() => router.replace("/account")}>Switch account</button>
-            </div>
-          </form> : <>
+          {!unlocked ? <>
+            <p style={body}>Your inbox is being decrypted using the account password from this sign-in session. No second vault password is needed.</p>
+            <button style={primary} disabled={busy} onClick={unlockInbox}>{busy ? "Opening inbox…" : "Retry opening inbox"}</button>
+            <button style={textButton} onClick={() => router.replace("/account")}>Sign in again</button>
+          </> : <>
             <div style={toolbar}>
               <span style={muted}>{recentItems.length} recent {recentItems.length === 1 ? "entry" : "entries"} · live refresh every 2 sec</span>
               <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                {hasShortcodeEntries && (
+                  <button style={textButton} onClick={() => setHideShortcodes((v) => !v)}>
+                    {hideShortcodes ? "Show sender IDs" : "Hide sender IDs (57273200)"}
+                  </button>
+                )}
                 <button style={textButton} disabled={busy} onClick={refreshInbox}>Refresh</button>
-                <button style={textButton} onClick={() => { sessionStorage.removeItem("otp-hub-inbox-key"); setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button>
+                <button style={textButton} onClick={() => { setUnlocked(false); setItems([]); setPassphrase(""); }}>Lock inbox</button>
               </div>
             </div>
             <div style={{display:"flex",gap:12,alignItems:"center",flexWrap:"wrap",margin:"8px 0 16px"}}>
@@ -379,6 +374,11 @@ export default function Home() {
               </button>
               <span style={muted}>Pulls the latest SMS OTPs remotely if Remote SMS Scan is enabled on your phone.</span>
             </div>
+            {hasShortcodeEntries && (
+              <div style={infoBanner}>
+                <b>Why 57273200 / 5253200 appeared:</b> Those 7–8 digit numbers are Indian SMS sender shortcodes (e.g. <code>AD-57273200</code>) captured by the older Android APK before the regex fix. The Android app never uploads full SMS text for privacy, so past entries only contain that sender ID. Once the updated APK is installed on your phone, new OTPs will show the real 4–6 digit verification code.
+              </div>
+            )}
             {remoteStatus !== "idle" && <div role="status" aria-live="polite" style={scanStatusCard}>
               <strong style={{display:"block",color:"#eee9ff",marginBottom:5}}>Latest SMS scan request</strong>
               <span style={scanStatusLabel}>{remoteStatus === "pending" ? "REQUESTED · WAITING FOR PHONE" : remoteStatus === "running" ? "SCANNING ON PHONE" : remoteStatus === "completed" ? "COMPLETED" : remoteStatus === "failed" ? "FAILED" : remoteStatus === "expired" ? "EXPIRED · NOT COMPLETED" : remoteStatus.toUpperCase()}</span>
@@ -386,23 +386,27 @@ export default function Home() {
               <p style={muted}>{remoteStatus === "pending" ? "Request received by the website and queued. Scanning starts as soon as the phone polls." : remoteStatus === "running" ? "The phone has confirmed that scanning is in progress." : remoteStatus === "completed" ? `Phone confirmed scan completion. ${remoteMatchCount === null ? "The result was received." : `${remoteMatchCount} OTP ${remoteMatchCount === 1 ? "match" : "matches"} found.`}` : remoteStatus === "expired" ? "The request expired before the phone completed it." : remoteStatus === "failed" ? "The phone reported that it could not complete this scan. See the message above for the reason." : "The scan request status is being tracked."}</p>
             </div>}
             {recentItems.length === 0 ? <div style={empty}><div style={{fontSize:27}}>⌁</div><strong>No synced OTPs yet</strong><p style={muted}>Enable notification access and Automatic encrypted sync in the Android app, or click "Scan SMS on my phone" above to pull recent SMS codes.</p></div> :
-              <div style={list}>{recentItems.map((item, index) => (
-                <article key={item.receivedAt + "-" + index} style={otpRow}>
-                  <div>
-                    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
-                      <strong style={{color:"#d9d0ff",fontSize:13}}>{item.source || "Unknown service"}</strong>
-                      {item.channel && <span style={badge}>{item.channel}</span>}
+              <div style={list}>{recentItems.map((item, index) => {
+                const isShortcode = DLT_SHORTCODE_RE.test(item.code);
+                return (
+                  <article key={item.receivedAt + "-" + index} style={otpRow}>
+                    <div>
+                      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+                        <strong style={{color:"#d9d0ff",fontSize:13}}>{item.source || "Unknown service"}</strong>
+                        {item.channel && <span style={badge}>{item.channel}</span>}
+                        {isShortcode && <span style={warnBadge}>SMS Sender Shortcode · not OTP</span>}
+                      </div>
+                      <div style={code}>{hidden[index] ? "••••••" : item.code}</div>
+                      {item.rawText && <p style={{...muted,margin:"4px 0"}}>{item.rawText}</p>}
+                      <small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small>
                     </div>
-                    <div style={code}>{hidden[index] ? "••••••" : item.code}</div>
-                    {item.rawText && <p style={{...muted,margin:"4px 0"}}>{item.rawText}</p>}
-                    <small style={muted}>{new Date(item.receivedAt).toLocaleString()}</small>
-                  </div>
-                  <div style={{display:"flex",gap:8}}>
-                    <button style={smallButton} onClick={() => setHidden((old) => ({...old,[index]:!old[index]}))}>{hidden[index] ? "Show" : "Hide"}</button>
-                    <button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button>
-                  </div>
-                </article>
-              ))}</div>}
+                    <div style={{display:"flex",gap:8}}>
+                      <button style={smallButton} onClick={() => setHidden((old) => ({...old,[index]:!old[index]}))}>{hidden[index] ? "Show" : "Hide"}</button>
+                      <button style={smallButton} onClick={() => { void navigator.clipboard.writeText(item.code); setNotice("Code copied to clipboard. Clear the clipboard when finished."); }}>Copy</button>
+                    </div>
+                  </article>
+                );
+              })}</div>}
             <button style={danger} disabled={busy} onClick={clearInbox}>Clear synced inbox</button>
           </>}
           {notice && <p style={success}>{notice}</p>}
@@ -433,12 +437,13 @@ const eyebrow: React.CSSProperties = { color:"#aa91ff", fontSize:11, letterSpaci
 const heading: React.CSSProperties = { fontSize:30, margin:"0 0 8px", letterSpacing:-.7 };
 const subheading: React.CSSProperties = { fontSize:18, margin:"0 0 5px", color:"#f2edff" };
 const muted: React.CSSProperties = { color:"#969bb0", fontSize:13, lineHeight:1.6, margin:"5px 0" };
-const body: React.CSSProperties = { color:"#b5b7c8", fontSize:13, lineHeight:1.7, margin:"10px 0 12px" };
-const unlockInput: React.CSSProperties = { width:"100%", maxWidth:420, display:"block", boxSizing:"border-box", padding:"12px 14px", borderRadius:9, border:"1px solid #3c3a57", background:"#101522", color:"#f3efff", fontSize:14, marginBottom:12 };
+const body: React.CSSProperties = { color:"#b5b7c8", fontSize:13, lineHeight:1.7, margin:"16px 0" };
 const inboxCard: React.CSSProperties = { border:"1px solid #34304e", borderRadius:16, padding:20, background:"linear-gradient(145deg,#19182b,#121725)" };
 const sectionHead: React.CSSProperties = { display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" };
 const lock: React.CSSProperties = { border:"1px solid #4a4168", borderRadius:20, padding:"6px 10px", color:"#c5b4ff", fontSize:10 };
 const badge: React.CSSProperties = { border:"1px solid #3b405c", borderRadius:6, padding:"2px 7px", color:"#b8b2d8", fontSize:11 };
+const warnBadge: React.CSSProperties = { border:"1px solid #6b5328", borderRadius:6, padding:"2px 7px", background:"#2c2212", color:"#f0c674", fontSize:11 };
+const infoBanner: React.CSSProperties = { margin:"10px 0 14px", padding:"12px 14px", border:"1px solid #5c4926", borderRadius:10, background:"#221b10", color:"#e6cfa1", fontSize:12, lineHeight:1.6 };
 const primary: React.CSSProperties = { border:0, borderRadius:9, padding:"12px 16px", background:"linear-gradient(135deg,#9476f0,#7053d2)", color:"white", fontWeight:700, cursor:"pointer" };
 const secondary: React.CSSProperties = { border:"1px solid #42445a", borderRadius:9, padding:"10px 14px", background:"#171c2b", color:"#ddd7ef", cursor:"pointer" };
 const toolbar: React.CSSProperties = { display:"flex", justifyContent:"space-between", alignItems:"center", margin:"18px 0 12px" };
