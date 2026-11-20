@@ -22,15 +22,16 @@ export default function AccountPage() {
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setError(""); setNotice(""); setRecoveryCode(""); setBusy(true);
     try {
+      const cleanUsername = username.trim();
       if (mode === "register") {
-        const result = await rpc<AccountResult>("otp_hub_register", { p_username: username, p_password: password });
+        const result = await rpc<AccountResult>("otp_hub_register", { p_username: cleanUsername, p_password: password });
         saveAccount(result); sessionStorage.setItem("otp-hub-inbox-key", password); setRecoveryCode(result.recovery_code || "");
         setNotice("Account created. Save this one-time recovery code before leaving this page.");
       } else if (mode === "login") {
-        const result = await rpc<AccountResult>("otp_hub_login", { p_username: username, p_password: password });
+        const result = await rpc<AccountResult>("otp_hub_login", { p_username: cleanUsername, p_password: password });
         saveAccount(result); sessionStorage.setItem("otp-hub-inbox-key", password); setNotice("Signed in successfully. Opening your dashboard…"); router.replace("/");
       } else {
-        const result = await rpc<Array<{ username: string; recovery_code: string }>>("otp_hub_recover", { p_username: username, p_recovery_code: recovery, p_new_password: newPassword });
+        const result = await rpc<Array<{ username: string; recovery_code: string }>>("otp_hub_recover", { p_username: cleanUsername, p_recovery_code: recovery.trim(), p_new_password: newPassword });
         const item = Array.isArray(result) ? result[0] : undefined;
         setRecoveryCode(item?.recovery_code || "");
         setNotice("Password updated. Save your new recovery code, then sign in again.");
@@ -48,7 +49,7 @@ export default function AccountPage() {
           <h1 style={{ fontSize: 32, margin: "12px 0" }}>{mode === "login" ? "Welcome back" : mode === "register" ? "Create your account" : "Recover your account"}</h1>
           <p style={{ color: "#686477", lineHeight: 1.6 }}>Use one username and password on the OTP Hub website and Android app. No email address or phone number is required.</p>
           <div style={{ display: "flex", gap: 8, margin: "22px 0" }}>
-            {(["login", "register", "recover"] as Mode[]).map((item) => <button key={item} onClick={() => { setMode(item); setError(""); setNotice(""); setRecoveryCode(""); }} style={{ flex: 1, padding: "10px 4px", borderRadius: 9, border: mode === item ? "1px solid #6849c8" : "1px solid #e5e1ee", background: mode === item ? "#f1edff" : "white", color: "#342c49", fontWeight: 600, textTransform: "capitalize" }}>{item}</button>)}
+            {(["login", "register", "recover"] as Mode[]).map((item) => <button type="button" key={item} onClick={() => { setMode(item); setError(""); setNotice(""); setRecoveryCode(""); }} style={{ flex: 1, padding: "10px 4px", borderRadius: 9, border: mode === item ? "1px solid #6849c8" : "1px solid #e5e1ee", background: mode === item ? "#f1edff" : "white", color: "#342c49", fontWeight: 600, textTransform: "capitalize" }}>{item}</button>)}
           </div>
           <form onSubmit={submit}>
             <label style={{ display: "block", fontSize: 13, fontWeight: 700, marginBottom: 6 }}>Username</label>
@@ -67,6 +68,9 @@ export default function AccountPage() {
             {recoveryCode && <div style={{ background: "#f4f0ff", padding: 16, borderRadius: 10, margin: "14px 0" }}><strong>Recovery code — save it now</strong><p style={{ fontSize: 20, fontWeight: 700, letterSpacing: 1 }}>{recoveryCode}</p><small>This code is shown once. Keep it private and offline.</small></div>}
             <button disabled={busy} type="submit" style={{ width: "100%", border: 0, borderRadius: 10, padding: 15, background: "#6849c8", color: "white", fontWeight: 700, marginTop: 16, opacity: busy ? .6 : 1 }}>{busy ? "Please wait…" : mode === "login" ? "Sign in" : mode === "register" ? "Create account" : "Reset password"}</button>
           </form>
+          {recoveryCode && <div style={{ marginTop: 14, textAlign: "center" }}>
+            <Link href="/" style={{ color: "#6849c8", fontWeight: 700, textDecoration: "none", fontSize: 14 }}>Continue to your OTP dashboard →</Link>
+          </div>}
           <p style={{ color: "#777287", fontSize: 12, lineHeight: 1.5, marginTop: 18 }}>Your account password also encrypts your synced OTP inbox. Keep it private along with your recovery code.</p>
         </section>
       </div>
