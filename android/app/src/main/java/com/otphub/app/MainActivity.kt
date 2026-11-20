@@ -16,13 +16,6 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
-import javax.crypto.Cipher
-import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.PBEKeySpec
-import javax.crypto.spec.SecretKeySpec
-import android.util.Base64
-import java.security.SecureRandom
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import androidx.work.Constraints
@@ -60,13 +53,18 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         startForegroundRemotePolling()
-        // Refresh the inbox and access status after returning from Android settings.
         if (homeScreenActive && token.isNotBlank()) showHome()
     }
 
     override fun onPause() {
         remotePollHandler.removeCallbacks(remotePollRunnable)
         super.onPause()
+    }
+
+    override fun onDestroy() {
+        remotePollHandler.removeCallbacks(remotePollRunnable)
+        worker.shutdownNow()
+        super.onDestroy()
     }
 
     private fun startForegroundRemotePolling() {
@@ -90,10 +88,14 @@ class MainActivity : Activity() {
         conn.setRequestProperty("apikey", publicKey)
         conn.setRequestProperty("Authorization", "Bearer $publicKey")
         conn.setRequestProperty("Content-Type", "application/json")
-        conn.outputStream.use { it.write(body.toString().toByteArray()) }
+        conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
         val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
-        val text = stream.bufferedReader().use { it.readText() }
-        if (conn.responseCode !in 200..299) throw Exception(JSONObject(text).optString("message", "Request failed"))
+        val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        conn.disconnect()
+        if (conn.responseCode !in 200..299) {
+            val errMsg = try { JSONObject(text).optString("message", "Request failed") } catch (_: Exception) { "Request failed" }
+            throw Exception(errMsg.ifBlank { "Request failed" })
+        }
         return if (text.startsWith("{")) JSONObject(text) else JSONObject().put("result", text)
     }
 
@@ -378,7 +380,7 @@ class MainActivity : Activity() {
                         val item = detected.optJSONObject(i) ?: continue
                         if (now - item.optLong("receivedAt") <= 7L * 24L * 60L * 60L * 1000L) recent.put(item)
                     }
-                    val encrypted = encryptNotificationSnapshot(recent, phrase)
+                    val encrypted = AutoSyncCrypto.encryptSnapshot(recent, phrase)
                     callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
                     runOnUiThread { message("Encrypted OTP inbox synced. Open the website and unlock it with the same passphrase.") }
                 }
@@ -409,11 +411,17 @@ class MainActivity : Activity() {
                                 val recent = JSONArray()
                                 for (i in 0 until detected.length()) {
                                     val item = detected.optJSONObject(i) ?: continue
-                                    if (now - item.optLong("receivedAt") <= 24L * 60L * 60L * 1000L) recent.put(item)
+                                    if (now - item.optLong("receivedAt") <= 7L * 24L * 60L * 60L * 1000L) recent.put(item)
                                 }
                                 val encrypted = AutoSyncCrypto.encryptSnapshot(recent, phrase)
                                 callRpc("otp_hub_otp_inbox_save", JSONObject().put("p_token", token).put("p_encrypted_payload", encrypted))
-                                androidx.work.WorkManager.getInstance(applicationContext).enqueueUniqueWork("otp-hub-otp-upload", androidx.work.ExistingWorkPolicy.REPLACE, androidx.work.OneTimeWorkRequestBuilder<OtpUploadWorker>().setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()).build())
+                                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                                    "otp-hub-otp-upload",
+                                    ExistingWorkPolicy.REPLACE,
+                                    OneTimeWorkRequestBuilder<OtpUploadWorker>()
+                                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                                        .build()
+                                )
                                 runOnUiThread { message("Automatic sync enabled. Your password is saved securely on this phone; future uploads will not ask for it again.") }
                             }
                         } catch (e: Exception) {
@@ -428,7 +436,13 @@ class MainActivity : Activity() {
             }
             root.addView(autoSwitch, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(4); bottomMargin = dp(4) })
             if (autoAlreadyEnabled) {
-                androidx.work.WorkManager.getInstance(applicationContext).enqueueUniqueWork("otp-hub-otp-upload", androidx.work.ExistingWorkPolicy.KEEP, androidx.work.OneTimeWorkRequestBuilder<OtpUploadWorker>().setConstraints(androidx.work.Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()).build())
+                WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                    "otp-hub-otp-upload",
+                    ExistingWorkPolicy.KEEP,
+                    OneTimeWorkRequestBuilder<OtpUploadWorker>()
+                        .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                        .build()
+                )
             }
             root.addView(TextView(this).apply {
                 text = "Optional: when enabled, OTP candidates are encrypted on this phone and uploaded automatically after detection. Your password is protected with Android Keystore. Android battery/network restrictions can delay delivery."
@@ -445,8 +459,6 @@ class MainActivity : Activity() {
         }
     }
 
-
-
     private fun importOtpFromClipboard() {
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clip = clipboard.primaryClip
@@ -459,11 +471,9 @@ class MainActivity : Activity() {
             message("No readable text found in clipboard.")
             return
         }
-        val context = Regex("(?i)\\b(otp|one[- ]time|verification|verify|security|login|passcode|password|code|pin|authentication|auth|instagram|whatsapp)\\b")
-        val match = Regex("(?<!\\d)(\\d{3}[- ]?\\d{3}|\\d{4,8})(?!\\d)").find(text)
-        val digits = match?.groupValues?.getOrNull(1)?.filter(Char::isDigit).orEmpty()
-        if (digits.length !in 4..8 || !context.containsMatchIn(text)) {
-            message("No verification code found. Copy the code itself from WhatsApp and try again.")
+        val extracted = OtpNotificationListener.findOtp(text)
+        if (extracted == null) {
+            message("No verification code found. Copy the code or message and try again.")
             return
         }
         val source = when {
@@ -476,12 +486,12 @@ class MainActivity : Activity() {
         val now = System.currentTimeMillis()
         val duplicate = (0 until old.length()).any { index ->
             val item = old.optJSONObject(index) ?: return@any false
-            item.optString("code") == digits && item.optString("source") == source &&
+            item.optString("code") == extracted && item.optString("source") == source &&
                 kotlin.math.abs(now - item.optLong("receivedAt")) <= 30_000L
         }
         if (!duplicate) {
             val next = JSONArray()
-            next.put(JSONObject().put("code", digits).put("source", source)
+            next.put(JSONObject().put("code", extracted).put("source", source)
                 .put("receivedAt", now).put("channel", "Clipboard"))
             for (index in 0 until old.length()) {
                 val item = old.optJSONObject(index) ?: continue
@@ -509,7 +519,7 @@ class MainActivity : Activity() {
         var shown = 0
         for (i in 0 until detected.length()) {
             val item = detected.optJSONObject(i) ?: continue
-            if (now - item.optLong("receivedAt") > 24L * 60L * 60L * 1000L) continue
+            if (now - item.optLong("receivedAt") > 7L * 24L * 60L * 60L * 1000L) continue
             val source = item.optString("source", "Unknown app")
             val code = item.optString("code")
             val time = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.optLong("receivedAt")))
@@ -555,61 +565,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showDetectedOtps() {
-        homeScreenActive = false
-        runOnUiThread {
-            val prefs = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
-            val detected = try { JSONArray(prefs.getString("detected", "[]")) } catch (_: Exception) { JSONArray() }
-            baseLayout("Detected OTPs", "Only numeric code candidates are kept locally on this phone. Full notification text is not stored.")
-            if (detected.length() == 0) {
-                root.addView(TextView(this).apply {
-                    text = "No OTP notifications detected yet. Enable notification access, then wait for a new verification notification."
-                    textSize = 15f
-                    setTextColor(0xFF656174.toInt())
-                    setPadding(0, 18, 0, 18)
-                })
-            }
-            for (i in 0 until detected.length()) {
-                val item = detected.optJSONObject(i) ?: continue
-                val code = item.optString("code")
-                val time = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.optLong("receivedAt")))
-                root.addView(TextView(this).apply {
-                    text = "$code\n$time"
-                    textSize = 24f
-                    setTypeface(null, Typeface.BOLD)
-                    setTextColor(0xFF27213B.toInt())
-                    setPadding(18, 18, 18, 18)
-                    background = rounded(0xFFFFFFFF.toInt(), 0xFFE8E4F0.toInt(), dp(16))
-                    elevation = dp(1).toFloat()
-                })
-                button("Copy code") {
-                    val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("OTP", code))
-                    message("Code copied.")
-                }
-            }
-            button("Clear detected codes") {
-                prefs.edit().remove("detected").apply()
-                showDetectedOtps()
-            }
-            button("Back") { showHome() }
-        }
-    }
-
     companion object {
         private const val REQUEST_REMOTE_SMS_PERMISSION = 4107
     }
-
-    private fun encryptNotificationSnapshot(data: JSONArray, passphrase: String): JSONObject {
-        val random = SecureRandom()
-        val salt = ByteArray(16).also(random::nextBytes)
-        val iv = ByteArray(12).also(random::nextBytes)
-        val spec = PBEKeySpec(passphrase.toCharArray(), salt, 310000, 256)
-        val raw = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(raw, "AES"), GCMParameterSpec(128, iv))
-        val encrypted = cipher.doFinal(data.toString().toByteArray())
-        return JSONObject().put("salt", Base64.encodeToString(salt, Base64.NO_WRAP)).put("iv", Base64.encodeToString(iv, Base64.NO_WRAP)).put("data", Base64.encodeToString(encrypted, Base64.NO_WRAP))
-    }
-
 }
