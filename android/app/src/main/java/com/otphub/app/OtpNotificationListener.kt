@@ -16,7 +16,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * Opt-in, on-device OTP notification detector.
+ * Lockscreen-resilient, on-device OTP notification detector.
  * Extracts genuine verification codes while stripping DLT sender IDs/shortcodes
  * (such as 57273200, 5253200, AD-57273200) and transaction/reference numbers.
  */
@@ -30,7 +30,7 @@ class OtpNotificationListener : NotificationListenerService() {
         try {
             activeNotifications?.forEach(::processNotification)
         } catch (_: SecurityException) {
-            // Android may temporarily withhold active-notification access.
+            // Android may temporarily withhold active-notification access on lockscreen.
         }
     }
 
@@ -38,11 +38,18 @@ class OtpNotificationListener : NotificationListenerService() {
         getSharedPreferences("otp_hub_autosync", MODE_PRIVATE).edit()
             .putLong("listener_disconnected_at", System.currentTimeMillis())
             .apply()
-        requestRebind(ComponentName(this, OtpNotificationListener::class.java))
+        try {
+            requestRebind(ComponentName(this, OtpNotificationListener::class.java))
+        } catch (_: Exception) {
+        }
         super.onListenerDisconnected()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
+        processNotification(sbn)
+    }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification, rankingMap: RankingMap?) {
         processNotification(sbn)
     }
 
@@ -60,6 +67,7 @@ class OtpNotificationListener : NotificationListenerService() {
                 .putBoolean("last_notification_otp_match", code != null)
                 .putLong("last_notification_at", System.currentTimeMillis())
                 .putString("last_notification_keys", sbn.notification.extras?.keySet()?.joinToString(",")?.take(500).orEmpty())
+                .remove("last_notification_error")
                 .apply()
             if (code == null) return
             val source = when (sbn.packageName) {
@@ -139,12 +147,14 @@ class OtpNotificationListener : NotificationListenerService() {
         addTo(bodyParts, extras.getCharSequence(Notification.EXTRA_INFO_TEXT))
         addTo(bodyParts, notification.tickerText)
         extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)?.forEach { addTo(bodyParts, it) }
+        @Suppress("DEPRECATION")
         extras.getParcelableArray(Notification.EXTRA_MESSAGES)?.forEach { item ->
             when (item) {
                 is Notification.MessagingStyle.Message -> addTo(bodyParts, item.text)
                 is Bundle -> addTo(bodyParts, item.getCharSequence("text"))
             }
         }
+        @Suppress("DEPRECATION")
         extras.getParcelableArray(Notification.EXTRA_HISTORIC_MESSAGES)?.forEach { item ->
             when (item) {
                 is Notification.MessagingStyle.Message -> addTo(bodyParts, item.text)
