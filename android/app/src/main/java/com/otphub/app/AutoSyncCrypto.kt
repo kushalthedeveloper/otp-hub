@@ -7,6 +7,7 @@ import android.util.Base64
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
+import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -53,8 +54,9 @@ object AutoSyncCrypto {
     }
 
     fun encryptSnapshot(data: JSONArray, passphrase: String): JSONObject {
-        val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
-        val iv = ByteArray(12).also { java.security.SecureRandom().nextBytes(it) }
+        val random = SecureRandom()
+        val salt = ByteArray(16).also(random::nextBytes)
+        val iv = ByteArray(12).also(random::nextBytes)
         val spec = PBEKeySpec(passphrase.toCharArray(), salt, 310000, 256)
         val raw = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded
         spec.clearPassword()
