@@ -14,6 +14,7 @@ import org.json.JSONObject
 object SmsOtpScanner {
     private const val MAX_MESSAGES_TO_EXAMINE = 500
     private const val MAX_OTP_MATCHES = 5
+    private val DLT_SHORTCODE = Regex("^5\\d{6,7}$")
 
     fun scanLastFive(context: Context): JSONArray {
         if (context.checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
@@ -41,6 +42,7 @@ object SmsOtpScanner {
                 examined++
                 val body = it.getString(bodyIndex).orEmpty()
                 val code = OtpNotificationListener.findOtp(body) ?: continue
+                if (DLT_SHORTCODE.matches(code)) continue
                 val address = if (addressIndex >= 0) it.getString(addressIndex).orEmpty() else ""
                 val receivedAt = it.getLong(dateIndex)
                 val key = "$code|$address|$receivedAt"
