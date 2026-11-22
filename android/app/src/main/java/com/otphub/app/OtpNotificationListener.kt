@@ -58,7 +58,10 @@ class OtpNotificationListener : NotificationListenerService() {
         try {
             val extracted = collectNotificationParts(sbn)
             val combinedForBrand = "${extracted.title} ${extracted.body}".trim()
-            val code = findOtp(extracted.body) ?: findOtp(extracted.title)
+            // Some messaging apps split the OTP label and digits across notification fields.
+            // Search the combined visible text first, then retain the individual-field fallbacks.
+            val combinedText = listOf(extracted.title, extracted.body).filter { it.isNotBlank() }.joinToString("\n")
+            val code = findOtp(combinedText) ?: findOtp(extracted.body) ?: findOtp(extracted.title)
             val diagnostic = getSharedPreferences("otp_hub_notifications", MODE_PRIVATE)
             diagnostic.edit()
                 .putInt("notification_count", diagnostic.getInt("notification_count", 0) + 1)
