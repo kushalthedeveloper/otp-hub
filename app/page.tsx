@@ -71,28 +71,28 @@ async function decryptInbox(payload: Record<string, string>, passphrase: string)
   const rawList = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : null;
   if (!rawList) throw new Error("Inbox data is not valid.");
   const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  return rawList
-    .map((rawItem: Record<string, unknown>) => {
-      const rawText = [rawItem?.text, rawItem?.body, rawItem?.message, rawItem?.preview, rawItem?.title]
-        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-        .join(" ");
-      const rawCode = typeof rawItem?.code === "string" || typeof rawItem?.code === "number"
-        ? String(rawItem.code).replace(/\D/g, "")
-        : "";
-      const extracted = rawText ? extractBestCodeFromText(rawText) : null;
-      const finalCode = extracted || rawCode;
-      const parsedTime = Number(rawItem?.receivedAt ?? rawItem?.received_at ?? rawItem?.timestamp ?? rawItem?.date);
-      const receivedAt = Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime : Date.now();
-      return {
-        code: finalCode,
-        receivedAt,
-        source: typeof rawItem?.source === "string" ? rawItem.source : undefined,
-        channel: typeof rawItem?.channel === "string" ? rawItem.channel : undefined,
-        rawText: rawText || undefined,
-      };
-    })
-    .filter((item) => /^\d{4,8}$/.test(item.code) && !DLT_SHORTCODE_RE.test(item.code) && item.receivedAt >= cutoff)
-    .sort((a, b) => b.receivedAt - a.receivedAt)
+  const normalizedItems: OtpItem[] = rawList.map((rawItem: Record<string, unknown>): OtpItem => {
+    const rawText = [rawItem?.text, rawItem?.body, rawItem?.message, rawItem?.preview, rawItem?.title]
+      .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      .join(" ");
+    const rawCode = typeof rawItem?.code === "string" || typeof rawItem?.code === "number"
+      ? String(rawItem.code).replace(/\\D/g, "")
+      : "";
+    const extracted = rawText ? extractBestCodeFromText(rawText) : null;
+    const finalCode = extracted || rawCode;
+    const parsedTime = Number(rawItem?.receivedAt ?? rawItem?.received_at ?? rawItem?.timestamp ?? rawItem?.date);
+    const receivedAt = Number.isFinite(parsedTime) && parsedTime > 0 ? parsedTime : Date.now();
+    return {
+      code: finalCode,
+      receivedAt,
+      source: typeof rawItem?.source === "string" ? rawItem.source : undefined,
+      channel: typeof rawItem?.channel === "string" ? rawItem.channel : undefined,
+      rawText: rawText || undefined,
+    };
+  });
+  return normalizedItems
+    .filter((item: OtpItem) => /^\\d{4,8}$/.test(item.code) && !DLT_SHORTCODE_RE.test(item.code) && item.receivedAt >= cutoff)
+    .sort((a: OtpItem, b: OtpItem) => b.receivedAt - a.receivedAt)
     .slice(0, 20);
 }
 
